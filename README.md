@@ -24,8 +24,68 @@ run the command for more information:
 - **Run command**: `inter-server-sync export --serverConfig=/etc/rhn/rhn.conf --outputDir=~/export --channels=channel_label,channel_label`
 - **Copy export directory to target server**: `rsync -r ~/export root@<Target_server>:~/`
 
+### Repository-based export (export-ng)
+
+`export` retains the traditional SQL export of channel, package and errata data,
+the original package directory layout, and import-time cache/metadata regeneration SQL.
+
+Use `inter-server-sync export-ng --serverConfig=/etc/rhn/rhn.conf --outputDir=~/export-ng --channels=channel_label,channel_label`
+to use the new repository-based implementation instead. It exports channel metadata
+and copies repository metadata and packages into `repos/<channel>/repodata` and
+`repos/<channel>/getPackage`. Package and errata SQL data and cache-regeneration SQL
+are omitted by this implementation; repositories are synchronized during import.
+
+The commands have independent flags and option values. Common flags retain their
+existing names and defaults. `--metadataOnly`, `--noChangelogs` and
+`--packagesOnlyAfter` are not available in `export-ng`.
+The legacy `export` command still requires an empty output directory.
+
+#### Reusing an NG export directory
+
+`export-ng` creates a missing output directory and accepts an empty directory
+without confirmation. For an existing export, it compares the resolved channel
+selection (including children) with `exportedChannels.txt`:
+
+- A directory containing a `packages/` folder is a legacy (non-NG) export. It is
+    not compatible: the export aborts, even with `--force`.
+- Every previously exported channel must remain selected. Reducing the scope
+    always aborts, even with `--force`.
+- An unchanged channel set proceeds without confirmation.
+- Adding channels requires confirmation. A nonempty directory without
+    `exportedChannels.txt` also requires confirmation because its scope is unknown.
+
+Prompts default to No: enter `y` or `yes` to proceed. Blank input, rejection,
+closed input, and input errors abort without changing existing export files.
+For automation, `--force` skips these confirmation prompts only; it does not
+bypass scope checks or filesystem errors.
+
+After validation and approval, the exporter removes `exportedChannels.txt`,
+`hubserver.pem`, `sql_statements.sql.gz`, `sql_statements.sql.gz.sha512`, and
+`version.txt` before regenerating them. Repository/package data under `repos/`
+and unrelated files are preserved. Cleanup errors stop the export; cleanup is
+not transactional, so files removed before an error are not restored.
+
 ### on target server
 - **Run command: `inter-server-sync import --importDir ~/export/`
+
+## Storage configuration
+
+Export and import read optional storage settings from the local server's
+configuration selected by `--serverConfig` (default `/etc/rhn/rhn.conf`):
+
+| Setting | Default | Usage |
+| --- | --- | --- |
+| `mount_point` | `/var/spacewalk` | Package source root for both exporters; import copies legacy packages into `<mount_point>/packages/`. |
+| `repomd_cache_mount_point` | `/var/cache` | NG export reads metadata from `<repomd_cache_mount_point>/rhn/repodata/<channel>/`. |
+
+Missing or blank settings retain these defaults. Configuration read errors stop
+the operation before export cleanup or import copying. Export uses the source
+server's settings; import uses the destination server's settings, not paths from
+the export. No additional CLI flags are required.
+
+NG repository import continues to use `spacewalk-repo-sync`, which manages its
+own package and metadata storage configuration. The selected `--serverConfig`
+is not forwarded to that external command. Image storage paths are unchanged.
 
 ## Database connection configuration
 

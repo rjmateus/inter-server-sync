@@ -23,13 +23,28 @@ type DumperOptions struct {
 	Orgs                      []uint
 	SignKey                   string
 	PassFile                  string
+	Force                     bool
+	StoragePaths              utils.StoragePaths
+}
+
+func (opt *DumperOptions) loadStoragePaths() error {
+	paths, err := utils.ReadStoragePaths(opt.ServerConfig)
+	if err != nil {
+		return err
+	}
+	opt.StoragePaths = paths
+	return nil
 }
 
 func (opt *DumperOptions) GetOutputFolderAbsPath() string {
-	if "" == opt.outputFolderAbsPath {
-		opt.outputFolderAbsPath = utils.GetAbsPath(opt.OutputFolder)
+	return getOutputFolderAbsPath(&opt.outputFolderAbsPath, opt.OutputFolder)
+}
+
+func getOutputFolderAbsPath(absPath *string, outputFolder string) string {
+	if *absPath == "" {
+		*absPath = utils.GetAbsPath(outputFolder)
 	}
-	return opt.outputFolderAbsPath
+	return *absPath
 }
 
 type channelsProcess struct {

@@ -91,11 +91,11 @@ func SoftwareChannelTableNames() []string {
 func ProductsTableNames() []string {
 	return []string{
 		// product data tables
-		"suseproducts",             // clean
-		"suseproductextension",     // clean
-		"susechanneltemplate", // clean
-		"susesccrepository",        // clean
-		"suseupgradepath",          // clean
+		"suseproducts",         // clean
+		"suseproductextension", // clean
+		"susechanneltemplate",  // clean
+		"susesccrepository",    // clean
+		"suseupgradepath",      // clean
 		// product data tables
 		"rhnchannelfamily",
 		"rhnpublicchannelfamily",
@@ -128,10 +128,10 @@ var childChannelSql = "select label from rhnchannel " +
 var singleChannelSql = "select label from rhnchannel " +
 	"where label = $1"
 
-func loadChannelsToProcess(db *sql.DB, options DumperOptions) []string {
+func loadChannelsToProcess(db *sql.DB, channelLabels, channelWithChildrenLabels []string) []string {
 	log.Trace().Msg("Loading channel list")
 	channels := channelsProcess{make(map[string]bool), make([]string, 0)}
-	for _, singleChannel := range options.ChannelLabels {
+	for _, singleChannel := range channelLabels {
 		if _, ok := channels.channelsMap[singleChannel]; !ok {
 			dbChannel := sqlUtil.ExecuteQueryWithResults(db, singleChannelSql, singleChannel)
 			if len(dbChannel) == 0 {
@@ -141,7 +141,7 @@ func loadChannelsToProcess(db *sql.DB, options DumperOptions) []string {
 		}
 	}
 
-	for _, channelChildren := range options.ChannelWithChildrenLabels {
+	for _, channelChildren := range channelWithChildrenLabels {
 		if _, ok := channels.channelsMap[channelChildren]; !ok {
 			dbChannel := sqlUtil.ExecuteQueryWithResults(db, singleChannelSql, channelChildren)
 			if len(dbChannel) == 0 {
@@ -164,7 +164,7 @@ func loadChannelsToProcess(db *sql.DB, options DumperOptions) []string {
 
 func processAndInsertProducts(db *sql.DB, writer *bufio.Writer) {
 	log.Trace().Msg("Processing product tables")
-	schemaMetadata := schemareader.ReadTablesSchema(db, ProductsTableNames())
+	schemaMetadata := schemareader.ReadTablesSchema(db, ProductsTableNames(), []string{})
 	startingTables := []schemareader.Table{schemaMetadata["suseproducts"]}
 
 	var whereFilterClause = func(table schemareader.Table) string {
@@ -183,17 +183,15 @@ func processAndInsertProducts(db *sql.DB, writer *bufio.Writer) {
 
 func processAndInsertChannels(db *sql.DB, writer *bufio.Writer, options DumperOptions) {
 
-	channels := loadChannelsToProcess(db, options)
+	channels := loadChannelsToProcess(db, options.ChannelLabels, options.ChannelWithChildrenLabels)
 	log.Info().Msg(fmt.Sprintf("%d channels to process", len(channels)))
 
 	channelTables := SoftwareChannelTableNames()
 	if !options.NoChangelogs {
-		channelTables = append(channelTables,
-			"rhnpackagechangelogdata",
-			"rhnpackagechangelogrec")
+		channelTables = append(channelTables, "rhnpackagechangelogdata", "rhnpackagechangelogrec")
 	}
 
-	schemaMetadata := schemareader.ReadTablesSchema(db, channelTables)
+	schemaMetadata := schemareader.ReadTablesSchema(db, channelTables, []string{})
 	log.Debug().Msg("channel schema metadata loaded")
 
 	fileChannels, err := os.Create(options.GetOutputFolderAbsPath() + "/exportedChannels.txt")
@@ -244,7 +242,7 @@ func processChannel(db *sql.DB, writer *bufio.Writer, channelLabel string,
 
 	if !options.MetadataOnly {
 		log.Debug().Msg("dumping all package files")
-		packageDumper.DumpPackageFiles(db, schemaMetadata, tableData, options.GetOutputFolderAbsPath())
+		packageDumper.DumpPackageFiles(db, schemaMetadata, tableData, options.GetOutputFolderAbsPath(), options.StoragePaths.PackageRoot())
 	}
 	log.Debug().Msg("channel export finished")
 
@@ -255,7 +253,7 @@ func generateChannelChildLink(db *sql.DB, channelLabel string, writer *bufio.Wri
 	childChannelChildLabels := make([]string, 0)
 	for _, cChannel := range childrenChannels {
 		cLabel := fmt.Sprintf("'%v'", cChannel[0].Value)
-		fmt.Println(cLabel)
+		log.Debug().Msg(fmt.Sprintf("Processing child channel link to database [%s]", cLabel))
 		childChannelChildLabels = append(childChannelChildLabels, cLabel)
 	}
 

@@ -15,8 +15,12 @@ import (
 	"github.com/uyuni-project/inter-server-sync/utils"
 )
 
+// dumpEntities shares only the export lifecycle; channel policies belong to each exporter.
 func DumpAllEntities(options DumperOptions) {
-	var outputFolderAbs = options.GetOutputFolderAbsPath()
+	if err := options.loadStoragePaths(); err != nil {
+		log.Fatal().Err(err).Msg("Error loading storage configuration")
+	}
+	outputFolderAbs := options.GetOutputFolderAbsPath()
 	validateExportFolder(outputFolderAbs)
 
 	outFile := path.Join(outputFolderAbs, "/sql_statements.sql.gz")

@@ -49,7 +49,7 @@ func processConfigs(db *sql.DB, writer *bufio.Writer, options DumperOptions) {
 
 	configs := loadConfigsToProcess(db, options)
 	log.Info().Msg(fmt.Sprintf("%d configuration channels to process", len(configs)))
-	schemaMetadata := schemareader.ReadTablesSchema(db, ConfigTableNames())
+	schemaMetadata := schemareader.ReadTablesSchema(db, ConfigTableNames(), []string{})
 	log.Debug().Msg("channel schema metadata loaded")
 	configLabels, err := os.Create(options.GetOutputFolderAbsPath() + "/exportedConfigs.txt")
 	if err != nil {

@@ -8,3 +8,4 @@ rhn.conf
 vendor.tar.gz
 *.pyc
 __pycache__
+bin/

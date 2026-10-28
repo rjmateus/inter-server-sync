@@ -8,9 +8,11 @@ import (
 	"bufio"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"os/exec"
 	"path"
+	"path/filepath"
 	"strings"
 
 	"github.com/rs/zerolog/log"
@@ -50,6 +52,10 @@ func init() {
 }
 
 func runImport(cmd *cobra.Command, args []string) {
+	storagePaths, err := utils.ReadStoragePaths(serverConfig)
+	if err != nil {
+		log.Fatal().Err(err).Msg("Error loading storage configuration")
+	}
 	password, err := getXMLRPCPassword(xmlRpcPassword, xmlRpcPasswordFile)
 	if err != nil {
 		log.Fatal().Err(err).Msg(err.Error())
@@ -88,12 +94,83 @@ func runImport(cmd *cobra.Command, args []string) {
 	}
 	log.Info().Msg("Importing...")
 
-	runPackageFileSync(absImportDir)
+	if err := runPackageFileSync(absImportDir, storagePaths.PackageRoot()); err != nil {
+		log.Fatal().Err(err).Msg("error importing package files")
+	}
 
 	runImageFileSync(absImportDir, serverConfig)
 
 	runImportSql(absImportDir, serverConfig)
+	if err := syncExportedChannelRepos(absImportDir); err != nil {
+		log.Fatal().Err(err).Msg("one or more channel repository syncs failed")
+	}
 	log.Info().Msg("import finished")
+}
+
+func syncExportedChannelRepos(importDirectory string) error {
+	return syncExportedChannelReposWithRunner(importDirectory, func(command string, args ...string) ([]byte, error) {
+		return exec.Command(command, args...).CombinedOutput()
+	})
+}
+
+func syncExportedChannelReposWithRunner(importDirectory string, run func(string, ...string) ([]byte, error)) error {
+	channelsFile := filepath.Join(importDirectory, "exportedChannels.txt")
+	file, err := os.Open(channelsFile)
+	if err != nil {
+		if os.IsNotExist(err) {
+			log.Warn().Str("file", channelsFile).Msg("no exported channel list; skipping repository sync")
+			return nil
+		}
+		return fmt.Errorf("open exported channel list %q: %w", channelsFile, err)
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	var syncErrors []string
+	for scanner.Scan() {
+		label := strings.TrimSpace(scanner.Text())
+		if label == "" {
+			continue
+		}
+		if label == "." || label == ".." || strings.ContainsAny(label, `/\\`) {
+			log.Warn().Str("channel", label).Msg("invalid channel label in export list; skipping")
+			continue
+		}
+
+		repositoryPath := filepath.Join(importDirectory, "repos", label)
+		repomdPath := filepath.Join(repositoryPath, "repodata", "repomd.xml")
+		info, statErr := os.Stat(repomdPath)
+		if statErr != nil || !info.Mode().IsRegular() {
+			log.Warn().Str("channel", label).Str("repository", repositoryPath).Msg("channel repository metadata is missing or incomplete; skipping repo-sync")
+			continue
+		}
+
+		absoluteRepositoryPath, err := filepath.Abs(repositoryPath)
+		if err != nil {
+			syncErrors = append(syncErrors, fmt.Sprintf("%s: resolve repository path: %v", label, err))
+			continue
+		}
+		repositoryURL := (&url.URL{Scheme: "file", Path: filepath.ToSlash(absoluteRepositoryPath)}).String()
+		args := []string{"-c", label, "--url=" + repositoryURL}
+		log.Debug().Str("channel", label).Str("command", "spacewalk-repo-sync").Strs("arguments", args).Msg("running local channel repository sync")
+		output, runErr := run("spacewalk-repo-sync", args...)
+		if runErr != nil {
+			message := strings.TrimSpace(string(output))
+			if message != "" {
+				syncErrors = append(syncErrors, fmt.Sprintf("%s: %v: %s", label, runErr, message))
+			} else {
+				syncErrors = append(syncErrors, fmt.Sprintf("%s: %v", label, runErr))
+			}
+			log.Error().Err(runErr).Str("channel", label).Str("output", message).Msg("channel repository sync failed")
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return fmt.Errorf("read exported channel list %q: %w", channelsFile, err)
+	}
+	if len(syncErrors) > 0 {
+		return fmt.Errorf("channel repository sync failures: %s", strings.Join(syncErrors, "; "))
+	}
+	return nil
 }
 
 func getImportVersionProduct(path string) (string, string) {
@@ -133,15 +210,24 @@ func hasConfigChannels(absImportDir string) bool {
 	return err == nil || os.IsExist(err)
 }
 
-func runPackageFileSync(absImportDir string) {
-	packagesImportDir := fmt.Sprintf("%s/packages/", absImportDir)
+func runPackageFileSync(absImportDir, mountPoint string) error {
+	return runPackageFileSyncWithRunner(absImportDir, mountPoint, func(command string, args ...string) error {
+		cmd := exec.Command(command, args...)
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		return cmd.Run()
+	})
+}
+
+func runPackageFileSyncWithRunner(absImportDir, mountPoint string, run func(string, ...string) error) error {
+	packagesImportDir := filepath.Join(absImportDir, "packages") + string(os.PathSeparator)
 	err := utils.FolderExists(packagesImportDir)
 	if err != nil {
 		if os.IsNotExist(err) {
 			log.Info().Msg("no package files to import")
-			return
+			return nil
 		} else {
-			log.Fatal().Err(err).Msg("Error getting import packages folder")
+			return fmt.Errorf("get import packages folder: %w", err)
 		}
 	}
 
@@ -151,16 +237,13 @@ func runPackageFileSync(absImportDir string) {
 	}
 
 	rsyncParams = append(rsyncParams, "-og", "--chown=wwwrun:www", "-r",
-		packagesImportDir, "/var/spacewalk/packages/")
+		packagesImportDir, filepath.Join(mountPoint, "packages")+string(os.PathSeparator))
 
-	cmd := exec.Command("rsync", rsyncParams...)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
 	log.Info().Msg("starting importing package files")
-	err = cmd.Run()
-	if err != nil {
-		log.Fatal().Err(err).Msg("error importing package files")
+	if err := run("rsync", rsyncParams...); err != nil {
+		return fmt.Errorf("sync import packages: %w", err)
 	}
+	return nil
 }
 
 func runConfigFilesSync(labels []string, user string, password string) (interface{}, error) {

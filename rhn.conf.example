@@ -8,3 +8,9 @@ db_password = ...
 db_name = susemanager
 db_host = ...
 db_port = 5432
+
+# Optional local storage roots (shown with their defaults).
+# Both exporters read packages here; import copies legacy packages into packages/.
+# mount_point = /var/spacewalk
+# NG export reads per-channel repository metadata from this root.
+# repomd_cache_mount_point = /var/cache
