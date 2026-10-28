@@ -51,6 +51,7 @@ BuildRequires:  golang(API) >= 1.20
 Requires:       gzip
 Requires:       systemd
 Requires:       openssl
+Requires:       rsync
 
 %description
 Uyuni inter server sync tool

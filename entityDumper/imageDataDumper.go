@@ -261,7 +261,7 @@ func dumpImageData(db *sql.DB, writer *bufio.Writer, options DumperOptions) {
 
 	// export DB data about images
 	log.Trace().Msg("Loading table schema")
-	schemaMetadata := schemareader.ReadTablesSchema(db, imagesTableNames)
+	schemaMetadata := schemareader.ReadTablesSchema(db, imagesTableNames, []string{})
 
 	if options.OSImages {
 		var outputFolderImagesAbs = filepath.Join(outputFolderAbs, "images")

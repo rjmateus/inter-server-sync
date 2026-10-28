@@ -12,13 +12,13 @@ import (
 
 // dotCmd represents the dot command
 var dotCmd = &cobra.Command{
-	Use:   "dot",
-	Short: "export database schema as dot diagram",
+	Use:    "dot",
+	Short:  "export database schema as dot diagram",
 	Hidden: true,
 	Run: func(cmd *cobra.Command, args []string) {
 		db := schemareader.GetDBconnection(serverConfig)
 		defer db.Close()
-		tables := schemareader.ReadTablesSchema(db, entityDumper.SoftwareChannelTableNames())
+		tables := schemareader.ReadTablesSchema(db, entityDumper.SoftwareChannelTableNames(), []string{})
 		schemareader.DumpToGraphviz(tables)
 	},
 }

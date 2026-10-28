@@ -17,6 +17,7 @@ type DumperOptions struct {
 	outputFolderAbsPath       string
 	MetadataOnly              bool
 	NoChangelogs              bool
+	RepoBaseExporter          bool
 	StartingDate              string
 	Containers                bool
 	OSImages                  bool
