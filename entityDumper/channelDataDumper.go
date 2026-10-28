@@ -46,7 +46,7 @@ func SoftwareChannelTableNames() []string {
 		"rhndistchannelmap",    // clean
 		"rhnchannelcomps",
 		"rhnchannelfamilymembers",
-		"rhnerrata",
+		/*"rhnerrata",
 		"rhnerratacloned",  // add only if there are corresponding rows in rhnerrata
 		"rhnchannelerrata", // clean
 		"rhnpackagenevra",
@@ -84,7 +84,7 @@ func SoftwareChannelTableNames() []string {
 		"rhnpackagesuggests",
 		"rhnpackagesupplements",
 		"susemddata",    // clean
-		"susemdkeyword", // clean
+		"susemdkeyword", // clean*/
 	}
 }
 
