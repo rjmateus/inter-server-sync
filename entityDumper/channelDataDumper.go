@@ -91,11 +91,11 @@ func SoftwareChannelTableNames() []string {
 func ProductsTableNames() []string {
 	return []string{
 		// product data tables
-		"suseproducts",             // clean
-		"suseproductextension",     // clean
-		"susechanneltemplate", // clean
-		"susesccrepository",        // clean
-		"suseupgradepath",          // clean
+		"suseproducts",         // clean
+		"suseproductextension", // clean
+		"susechanneltemplate",  // clean
+		"susesccrepository",    // clean
+		"suseupgradepath",      // clean
 		// product data tables
 		"rhnchannelfamily",
 		"rhnpublicchannelfamily",
@@ -209,6 +209,10 @@ func processAndInsertChannels(db *sql.DB, writer *bufio.Writer, options DumperOp
 	for _, channelLabel := range channels {
 		count++
 		log.Info().Msg(fmt.Sprintf("Processing channel [%d/%d] %s", count, len(channels), channelLabel))
+		err := os.MkdirAll(options.GetOutputFolderAbsPath()+"/repos/"+channelLabel+"/repodata", 0770)
+		if err != nil {
+			log.Panic().Err(err).Msg("error creating channel repo directory")
+		}
 		processChannel(db, writer, channelLabel, schemaMetadata, options)
 		writer.Flush()
 		bufferWriterChannels.WriteString(fmt.Sprintf("%s\n", channelLabel))
@@ -240,11 +244,21 @@ func processChannel(db *sql.DB, writer *bufio.Writer, channelLabel string,
 
 	generateChannelChildLink(db, channelLabel, writer)
 
-	generateCacheCalculation(channelLabel, writer)
+	// FIXME not needed anymore, since it will be taken care by repo-sync
+	//generateCacheCalculation(channelLabel, writer)
+
+	// FIXME copy the channel's metadata from /var/rhn/cache/<Channel_label>
 
 	if !options.MetadataOnly {
 		log.Debug().Msg("dumping all package files")
-		packageDumper.DumpPackageFiles(db, schemaMetadata, tableData, options.GetOutputFolderAbsPath())
+		source := fmt.Sprintf("/var/cache/rhn/repodata/%s", channelLabel)
+		target := fmt.Sprintf("%s/repos/%s/repodata", options.GetOutputFolderAbsPath(), channelLabel)
+		if err := syncChannelMetadata(source, target); err != nil {
+			log.Panic().Err(err).Str("source", source).Str("destination", target).
+				Msgf("could not sync channel metadata with rsync: %v", err)
+		}
+		packageFilesOutput := fmt.Sprintf("%s/repos/%s/getPackage", options.GetOutputFolderAbsPath(), channelLabel)
+		packageDumper.DumpPackageFiles(db, schemaMetadata, tableData, packageFilesOutput)
 	}
 	log.Debug().Msg("channel export finished")
 

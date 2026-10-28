@@ -7,9 +7,11 @@ package packageDumper
 import (
 	"database/sql"
 	"fmt"
-	"github.com/rs/zerolog/log"
+	"path/filepath"
+	"strings"
 	"time"
 
+	"github.com/rs/zerolog/log"
 	"github.com/uyuni-project/inter-server-sync/dumper"
 	"github.com/uyuni-project/inter-server-sync/schemareader"
 )
@@ -21,6 +23,7 @@ func DumpPackageFiles(db *sql.DB, schemaMetadata map[string]schemareader.Table, 
 	packageKeysData := data.TableData["rhnpackage"]
 	table := schemaMetadata[packageKeysData.TableName]
 	pathIndex := table.ColumnIndexes["path"]
+	orgId := table.ColumnIndexes["org_id"]
 
 	totalPackages := len(packageKeysData.Keys)
 	log.Debug().Msgf("Total package files to copy: %d", totalPackages)
@@ -53,16 +56,56 @@ func DumpPackageFiles(db *sql.DB, schemaMetadata map[string]schemareader.Table, 
 		}
 		rows := dumper.GetRowsFromKeys(db, table, packageKeysData.Keys[exportPoint:upperLimit])
 		for _, rowPackage := range rows {
-			path := rowPackage[pathIndex]
-			source := fmt.Sprintf("%s/%s", serverDataFolder, path.Value)
-			target := fmt.Sprintf("%s/%s", outputFolder, path.Value)
-			_, error := dumper.Copy(source, target)
-			if error != nil {
-				log.Panic().Err(error).Msg("could not Copy File")
+			packagePath := fmt.Sprint(rowPackage[pathIndex].Value)
+			orgIdValue := rowPackage[orgId]
+			source, target, err := packageFilePaths(serverDataFolder, outputFolder, packagePath, orgIdValue.Value)
+			if err != nil {
+				log.Panic().Err(err).Msg("invalid package file path")
+			}
+			if _, err := dumper.Copy(source, target); err != nil {
+				log.Panic().Err(err).Msg("could not copy package file")
 			}
 			exportedpackages++
 		}
 		exportPoint = upperLimit
 	}
 	processing = false
+}
+
+func packageFilePaths(sourceRoot, destinationRoot, storedPath string, orgID interface{}) (string, string, error) {
+	if storedPath == "" || strings.Contains(storedPath, `\`) {
+		return "", "", fmt.Errorf("invalid package path %q", storedPath)
+	}
+
+	relativePath := filepath.FromSlash(storedPath)
+	if filepath.IsAbs(relativePath) {
+		return "", "", fmt.Errorf("package path must be relative: %q", storedPath)
+	}
+	components := strings.Split(relativePath, string(filepath.Separator))
+	if len(components) < 2 {
+		return "", "", fmt.Errorf("package path must contain at least two components: %q", storedPath)
+	}
+	for _, component := range components {
+		if component == ".." || component == "." || component == "" {
+			return "", "", fmt.Errorf("invalid package path component in %q", storedPath)
+		}
+	}
+
+	cleanPath := filepath.Clean(relativePath)
+	sourceRoot = filepath.Clean(sourceRoot)
+	source := filepath.Join(sourceRoot, cleanPath)
+	relativeSource, err := filepath.Rel(sourceRoot, source)
+	if err != nil || relativeSource == ".." || strings.HasPrefix(relativeSource, ".."+string(filepath.Separator)) {
+		return "", "", fmt.Errorf("package path escapes source directory: %q", storedPath)
+	}
+
+	orgDirectory := "NULL"
+	if orgID != nil {
+		orgDirectory = fmt.Sprintf("%s", orgID)
+		if orgDirectory == "" || orgDirectory == "." || orgDirectory == ".." || strings.ContainsAny(orgDirectory, `/\\`) {
+			return "", "", fmt.Errorf("invalid package organization ID %q", orgDirectory)
+		}
+	}
+	destination := filepath.Join(destinationRoot, orgDirectory, components[len(components)-2], components[len(components)-1])
+	return source, destination, nil
 }
