@@ -8,9 +8,11 @@ import (
 	"bufio"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"os/exec"
 	"path"
+	"path/filepath"
 	"strings"
 
 	"github.com/rs/zerolog/log"
@@ -93,7 +95,76 @@ func runImport(cmd *cobra.Command, args []string) {
 	runImageFileSync(absImportDir, serverConfig)
 
 	runImportSql(absImportDir, serverConfig)
+	if err := syncExportedChannelRepos(absImportDir); err != nil {
+		log.Fatal().Err(err).Msg("one or more channel repository syncs failed")
+	}
 	log.Info().Msg("import finished")
+}
+
+func syncExportedChannelRepos(importDirectory string) error {
+	return syncExportedChannelReposWithRunner(importDirectory, func(command string, args ...string) ([]byte, error) {
+		return exec.Command(command, args...).CombinedOutput()
+	})
+}
+
+func syncExportedChannelReposWithRunner(importDirectory string, run func(string, ...string) ([]byte, error)) error {
+	channelsFile := filepath.Join(importDirectory, "exportedChannels.txt")
+	file, err := os.Open(channelsFile)
+	if err != nil {
+		if os.IsNotExist(err) {
+			log.Warn().Str("file", channelsFile).Msg("no exported channel list; skipping repository sync")
+			return nil
+		}
+		return fmt.Errorf("open exported channel list %q: %w", channelsFile, err)
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	var syncErrors []string
+	for scanner.Scan() {
+		label := strings.TrimSpace(scanner.Text())
+		if label == "" {
+			continue
+		}
+		if label == "." || label == ".." || strings.ContainsAny(label, `/\\`) {
+			log.Warn().Str("channel", label).Msg("invalid channel label in export list; skipping")
+			continue
+		}
+
+		repositoryPath := filepath.Join(importDirectory, "repos", label)
+		repomdPath := filepath.Join(repositoryPath, "repodata", "repomd.xml")
+		info, statErr := os.Stat(repomdPath)
+		if statErr != nil || !info.Mode().IsRegular() {
+			log.Warn().Str("channel", label).Str("repository", repositoryPath).Msg("channel repository metadata is missing or incomplete; skipping repo-sync")
+			continue
+		}
+
+		absoluteRepositoryPath, err := filepath.Abs(repositoryPath)
+		if err != nil {
+			syncErrors = append(syncErrors, fmt.Sprintf("%s: resolve repository path: %v", label, err))
+			continue
+		}
+		repositoryURL := (&url.URL{Scheme: "file", Path: filepath.ToSlash(absoluteRepositoryPath)}).String()
+		args := []string{"-c", label, "--type", "yum", "--url=" + repositoryURL}
+		log.Debug().Str("channel", label).Str("command", "spacewalk-repo-sync").Strs("arguments", args).Msg("running local channel repository sync")
+		output, runErr := run("spacewalk-repo-sync", args...)
+		if runErr != nil {
+			message := strings.TrimSpace(string(output))
+			if message != "" {
+				syncErrors = append(syncErrors, fmt.Sprintf("%s: %v: %s", label, runErr, message))
+			} else {
+				syncErrors = append(syncErrors, fmt.Sprintf("%s: %v", label, runErr))
+			}
+			log.Error().Err(runErr).Str("channel", label).Str("output", message).Msg("channel repository sync failed")
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return fmt.Errorf("read exported channel list %q: %w", channelsFile, err)
+	}
+	if len(syncErrors) > 0 {
+		return fmt.Errorf("channel repository sync failures: %s", strings.Join(syncErrors, "; "))
+	}
+	return nil
 }
 
 func getImportVersionProduct(path string) (string, string) {

@@ -164,7 +164,7 @@ func loadChannelsToProcess(db *sql.DB, options DumperOptions) []string {
 
 func processAndInsertProducts(db *sql.DB, writer *bufio.Writer) {
 	log.Trace().Msg("Processing product tables")
-	schemaMetadata := schemareader.ReadTablesSchema(db, ProductsTableNames())
+	schemaMetadata := schemareader.ReadTablesSchema(db, ProductsTableNames(), []string{})
 	startingTables := []schemareader.Table{schemaMetadata["suseproducts"]}
 
 	var whereFilterClause = func(table schemareader.Table) string {
@@ -187,13 +187,16 @@ func processAndInsertChannels(db *sql.DB, writer *bufio.Writer, options DumperOp
 	log.Info().Msg(fmt.Sprintf("%d channels to process", len(channels)))
 
 	channelTables := SoftwareChannelTableNames()
-	if !options.NoChangelogs {
-		channelTables = append(channelTables,
-			"rhnpackagechangelogdata",
-			"rhnpackagechangelogrec")
+
+	skipExportTable := []string{
+		"rhnerrata",
+		"rhnchannelerrata",
+		"rhnpackage",
+		"rhnchannelpackage",
+		"rhnerratapackage",
 	}
 
-	schemaMetadata := schemareader.ReadTablesSchema(db, channelTables)
+	schemaMetadata := schemareader.ReadTablesSchema(db, channelTables, skipExportTable)
 	log.Debug().Msg("channel schema metadata loaded")
 
 	fileChannels, err := os.Create(options.GetOutputFolderAbsPath() + "/exportedChannels.txt")
@@ -244,11 +247,6 @@ func processChannel(db *sql.DB, writer *bufio.Writer, channelLabel string,
 
 	generateChannelChildLink(db, channelLabel, writer)
 
-	// FIXME not needed anymore, since it will be taken care by repo-sync
-	//generateCacheCalculation(channelLabel, writer)
-
-	// FIXME copy the channel's metadata from /var/rhn/cache/<Channel_label>
-
 	if !options.MetadataOnly {
 		log.Debug().Msg("dumping all package files")
 		source := fmt.Sprintf("/var/cache/rhn/repodata/%s", channelLabel)
@@ -269,7 +267,7 @@ func generateChannelChildLink(db *sql.DB, channelLabel string, writer *bufio.Wri
 	childChannelChildLabels := make([]string, 0)
 	for _, cChannel := range childrenChannels {
 		cLabel := fmt.Sprintf("'%v'", cChannel[0].Value)
-		fmt.Println(cLabel)
+		log.Debug().Msg(fmt.Sprintf("Processing child channel link to database [%s]", cLabel))
 		childChannelChildLabels = append(childChannelChildLabels, cLabel)
 	}
 

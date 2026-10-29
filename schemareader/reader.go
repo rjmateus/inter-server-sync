@@ -326,14 +326,26 @@ func readPKSequence(db *sql.DB, tableName string) string {
 
 // ReadTablesSchema inspects the DB and returns a list of tables
 func ReadAllTablesSchema(db *sql.DB) map[string]Table {
-	return ReadTablesSchema(db, readTableNames(db))
+	return ReadTablesSchema(db, readTableNames(db), []string{})
 }
 
-func ReadTablesSchema(db *sql.DB, tableNames []string) map[string]Table {
+func ReadTablesSchema(db *sql.DB, tableNames []string, tableNamesSkipExport []string) map[string]Table {
 
 	result := make(map[string]Table, 0)
 	for _, tableName := range tableNames {
 		table, err := processTable(db, strings.ToLower(tableName), true)
+		if err {
+			continue
+		}
+		result[table.Name] = table
+	}
+
+	for _, tableName := range tableNamesSkipExport {
+		_, ok := result[tableName]
+		if ok {
+			continue
+		}
+		table, err := processTable(db, strings.ToLower(tableName), false)
 		if err {
 			continue
 		}
