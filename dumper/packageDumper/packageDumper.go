@@ -14,16 +14,29 @@ import (
 	"github.com/rs/zerolog/log"
 	"github.com/uyuni-project/inter-server-sync/dumper"
 	"github.com/uyuni-project/inter-server-sync/schemareader"
+	"github.com/uyuni-project/inter-server-sync/sqlUtil"
 )
 
 var serverDataFolder = "/var/spacewalk"
 
 func DumpPackageFiles(db *sql.DB, schemaMetadata map[string]schemareader.Table, data dumper.DataDumper, outputFolder string) {
+	dumpPackageFiles(db, schemaMetadata, data, func(row []sqlUtil.RowDataStructure, table schemareader.Table) (string, string, error) {
+		storedPath := row[table.ColumnIndexes["path"]].Value
+		return fmt.Sprintf("%s/%s", serverDataFolder, storedPath), fmt.Sprintf("%s/%s", outputFolder, storedPath), nil
+	})
+}
 
+// DumpPackageFilesNG copies packages into the repository getPackage layout.
+func DumpPackageFilesNG(db *sql.DB, schemaMetadata map[string]schemareader.Table, data dumper.DataDumper, outputFolder string) {
+	dumpPackageFiles(db, schemaMetadata, data, func(row []sqlUtil.RowDataStructure, table schemareader.Table) (string, string, error) {
+		return packageFilePaths(serverDataFolder, outputFolder, fmt.Sprint(row[table.ColumnIndexes["path"]].Value), row[table.ColumnIndexes["org_id"]].Value)
+	})
+}
+
+func dumpPackageFiles(db *sql.DB, schemaMetadata map[string]schemareader.Table, data dumper.DataDumper,
+	filePaths func([]sqlUtil.RowDataStructure, schemareader.Table) (string, string, error)) {
 	packageKeysData := data.TableData["rhnpackage"]
 	table := schemaMetadata[packageKeysData.TableName]
-	pathIndex := table.ColumnIndexes["path"]
-	orgId := table.ColumnIndexes["org_id"]
 
 	totalPackages := len(packageKeysData.Keys)
 	log.Debug().Msgf("Total package files to copy: %d", totalPackages)
@@ -56,9 +69,7 @@ func DumpPackageFiles(db *sql.DB, schemaMetadata map[string]schemareader.Table, 
 		}
 		rows := dumper.GetRowsFromKeys(db, table, packageKeysData.Keys[exportPoint:upperLimit])
 		for _, rowPackage := range rows {
-			packagePath := fmt.Sprint(rowPackage[pathIndex].Value)
-			orgIdValue := rowPackage[orgId]
-			source, target, err := packageFilePaths(serverDataFolder, outputFolder, packagePath, orgIdValue.Value)
+			source, target, err := filePaths(rowPackage, table)
 			if err != nil {
 				log.Panic().Err(err).Msg("invalid package file path")
 			}

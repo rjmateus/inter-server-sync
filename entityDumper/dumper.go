@@ -7,6 +7,7 @@ package entityDumper
 import (
 	"bufio"
 	"compress/gzip"
+	"database/sql"
 	"os"
 	"path"
 
@@ -16,6 +17,11 @@ import (
 )
 
 func DumpAllEntities(options DumperOptions) {
+	dumpEntities(options, processAndInsertChannels)
+}
+
+// dumpEntities shares only the export lifecycle; channel policies belong to each exporter.
+func dumpEntities(options DumperOptions, processChannels func(*sql.DB, *bufio.Writer, DumperOptions)) {
 	var outputFolderAbs = options.GetOutputFolderAbsPath()
 	validateExportFolder(outputFolderAbs)
 
@@ -37,7 +43,7 @@ func DumpAllEntities(options DumperOptions) {
 	bufferWriter.WriteString("BEGIN;\n")
 	if len(options.ChannelLabels) > 0 || len(options.ChannelWithChildrenLabels) > 0 {
 		processAndInsertProducts(db, bufferWriter)
-		processAndInsertChannels(db, bufferWriter, options)
+		processChannels(db, bufferWriter, options)
 	}
 	if len(options.ConfigLabels) > 0 {
 		processConfigs(db, bufferWriter, options)

@@ -31,7 +31,6 @@ var nochangelog bool
 var startingDate string
 var includeImages bool
 var includeContainers bool
-var repoBaseExporter bool
 var signKey string
 var pubCert string
 var passFile string
@@ -51,7 +50,6 @@ func init() {
 	exportCmd.Flags().StringVar(&signKey, "signKey", "/etc/pki/tls/private/spacewalk.key", "Private certificate used for signing the export")
 	exportCmd.Flags().StringVar(&pubCert, "certificate", "/etc/pki/tls/certs/spacewalk.crt", "Public certificate to be included in the export. Subject of CA validation during import")
 	exportCmd.Flags().StringVar(&passFile, "passfile", "", "Path to the file with certificate password if needed")
-	exportCmd.Flags().BoolVar(&repoBaseExporter, "repoBaseExporter", false, "Enable exporting repository base")
 	exportCmd.Args = cobra.NoArgs
 
 	rootCmd.AddCommand(exportCmd)
@@ -94,7 +92,6 @@ func runExport(cmd *cobra.Command, args []string) {
 		Orgs:                      orgs,
 		SignKey:                   signKey,
 		PassFile:                  passFile,
-		RepoBaseExporter:          repoBaseExporter,
 	}
 	entityDumper.DumpAllEntities(options)
 

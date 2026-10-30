@@ -17,13 +17,18 @@ type DumperOptions struct {
 	outputFolderAbsPath       string
 	MetadataOnly              bool
 	NoChangelogs              bool
-	RepoBaseExporter          bool
 	StartingDate              string
 	Containers                bool
 	OSImages                  bool
 	Orgs                      []uint
 	SignKey                   string
 	PassFile                  string
+}
+
+// DumperOptionsNG contains options specific to the repository-based exporter.
+type DumperOptionsNG struct {
+	DumperOptions
+	RepoBaseExporter bool
 }
 
 func (opt *DumperOptions) GetOutputFolderAbsPath() string {

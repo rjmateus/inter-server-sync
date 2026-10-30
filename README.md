@@ -24,6 +24,24 @@ run the command for more information:
 - **Run command**: `inter-server-sync export --serverConfig=/etc/rhn/rhn.conf --outputDir=~/export --channels=channel_label,channel_label`
 - **Copy export directory to target server**: `rsync -r ~/export root@<Target_server>:~/`
 
+### Repository-based export (export-ng)
+
+`export` retains the traditional SQL export of channel, package and errata data,
+the original package directory layout, and import-time cache/metadata regeneration SQL.
+
+Use `inter-server-sync export-ng --serverConfig=/etc/rhn/rhn.conf --outputDir=~/export-ng --channels=channel_label,channel_label`
+to use the new repository-based implementation instead. It exports channel metadata
+and copies repository metadata and packages into `repos/<channel>/repodata` and
+`repos/<channel>/getPackage`. Package and errata SQL data and cache-regeneration SQL
+are omitted by this implementation; repositories are synchronized during import.
+
+The commands have independent flags and option values. Common flags retain their
+existing names and defaults. `--repoBaseExporter` is accepted only by `export-ng`;
+it is retained from the new implementation but currently does not change its behavior.
+`--metadataOnly` skips repository metadata and package file copying in `export-ng`.
+`--noChangelogs` is retained for CLI compatibility on `export-ng`, which does not
+export package changelog tables. Use an empty output directory for either command.
+
 ### on target server
 - **Run command: `inter-server-sync import --importDir ~/export/`
 

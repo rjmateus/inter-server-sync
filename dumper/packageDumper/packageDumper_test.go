@@ -9,8 +9,61 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/uyuni-project/inter-server-sync/dumper"
+	"github.com/uyuni-project/inter-server-sync/schemareader"
 )
+
+func TestPackageDumpLayouts(t *testing.T) {
+	previousRoot := serverDataFolder
+	serverDataFolder = t.TempDir()
+	defer func() { serverDataFolder = previousRoot }()
+	const storedPath = "packages/NULL/hash/package.rpm"
+	source := filepath.Join(serverDataFolder, storedPath)
+	if err := os.MkdirAll(filepath.Dir(source), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(source, []byte("package data"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	for _, ng := range []bool{false, true} {
+		name := "legacy"
+		if ng {
+			name = "ng"
+		}
+		t.Run(name, func(t *testing.T) {
+			db, mock, err := sqlmock.New()
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer db.Close()
+			columns := []string{"id", "path", "org_id"}
+			mock.ExpectQuery("SELECT id, path, org_id FROM rhnpackage").WillReturnRows(sqlmock.NewRows(columns).AddRow(1, storedPath, nil))
+			schema := map[string]schemareader.Table{"rhnpackage": {
+				Name: "rhnpackage", Columns: columns, ColumnIndexes: map[string]int{"id": 0, "path": 1, "org_id": 2},
+			}}
+			data := dumper.DataDumper{TableData: map[string]dumper.TableDump{"rhnpackage": {
+				TableName: "rhnpackage", Keys: []dumper.TableKey{{Key: []dumper.RowKey{{Column: "id", Value: "1"}}}},
+			}}}
+			output := t.TempDir()
+			target := filepath.Join(output, storedPath)
+			if ng {
+				output = filepath.Join(output, "repos", "channel", "getPackage")
+				target = filepath.Join(output, "NULL", "hash", "package.rpm")
+				DumpPackageFilesNG(db, schema, data, output)
+			} else {
+				DumpPackageFiles(db, schema, data, output)
+			}
+			contents, err := os.ReadFile(target)
+			if err != nil || string(contents) != "package data" {
+				t.Fatalf("incorrect package at %s: %q, %v", target, contents, err)
+			}
+			if err := mock.ExpectationsWereMet(); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
 
 func TestPackageFilePaths(t *testing.T) {
 	tests := []struct {

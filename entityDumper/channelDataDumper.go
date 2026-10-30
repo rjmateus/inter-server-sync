@@ -46,7 +46,7 @@ func SoftwareChannelTableNames() []string {
 		"rhndistchannelmap",    // clean
 		"rhnchannelcomps",
 		"rhnchannelfamilymembers",
-		/*"rhnerrata",
+		"rhnerrata",
 		"rhnerratacloned",  // add only if there are corresponding rows in rhnerrata
 		"rhnchannelerrata", // clean
 		"rhnpackagenevra",
@@ -84,7 +84,7 @@ func SoftwareChannelTableNames() []string {
 		"rhnpackagesuggests",
 		"rhnpackagesupplements",
 		"susemddata",    // clean
-		"susemdkeyword", // clean*/
+		"susemdkeyword", // clean
 	}
 }
 
@@ -187,16 +187,11 @@ func processAndInsertChannels(db *sql.DB, writer *bufio.Writer, options DumperOp
 	log.Info().Msg(fmt.Sprintf("%d channels to process", len(channels)))
 
 	channelTables := SoftwareChannelTableNames()
-
-	skipExportTable := []string{
-		"rhnerrata",
-		"rhnchannelerrata",
-		"rhnpackage",
-		"rhnchannelpackage",
-		"rhnerratapackage",
+	if !options.NoChangelogs {
+		channelTables = append(channelTables, "rhnpackagechangelogdata", "rhnpackagechangelogrec")
 	}
 
-	schemaMetadata := schemareader.ReadTablesSchema(db, channelTables, skipExportTable)
+	schemaMetadata := schemareader.ReadTablesSchema(db, channelTables, nil)
 	log.Debug().Msg("channel schema metadata loaded")
 
 	fileChannels, err := os.Create(options.GetOutputFolderAbsPath() + "/exportedChannels.txt")
@@ -212,10 +207,6 @@ func processAndInsertChannels(db *sql.DB, writer *bufio.Writer, options DumperOp
 	for _, channelLabel := range channels {
 		count++
 		log.Info().Msg(fmt.Sprintf("Processing channel [%d/%d] %s", count, len(channels), channelLabel))
-		err := os.MkdirAll(options.GetOutputFolderAbsPath()+"/repos/"+channelLabel+"/repodata", 0770)
-		if err != nil {
-			log.Panic().Err(err).Msg("error creating channel repo directory")
-		}
 		processChannel(db, writer, channelLabel, schemaMetadata, options)
 		writer.Flush()
 		bufferWriterChannels.WriteString(fmt.Sprintf("%s\n", channelLabel))
@@ -247,16 +238,11 @@ func processChannel(db *sql.DB, writer *bufio.Writer, channelLabel string,
 
 	generateChannelChildLink(db, channelLabel, writer)
 
+	generateCacheCalculation(channelLabel, writer)
+
 	if !options.MetadataOnly {
 		log.Debug().Msg("dumping all package files")
-		source := fmt.Sprintf("/var/cache/rhn/repodata/%s", channelLabel)
-		target := fmt.Sprintf("%s/repos/%s/repodata", options.GetOutputFolderAbsPath(), channelLabel)
-		if err := syncChannelMetadata(source, target); err != nil {
-			log.Panic().Err(err).Str("source", source).Str("destination", target).
-				Msgf("could not sync channel metadata with rsync: %v", err)
-		}
-		packageFilesOutput := fmt.Sprintf("%s/repos/%s/getPackage", options.GetOutputFolderAbsPath(), channelLabel)
-		packageDumper.DumpPackageFiles(db, schemaMetadata, tableData, packageFilesOutput)
+		packageDumper.DumpPackageFiles(db, schemaMetadata, tableData, options.GetOutputFolderAbsPath())
 	}
 	log.Debug().Msg("channel export finished")
 
