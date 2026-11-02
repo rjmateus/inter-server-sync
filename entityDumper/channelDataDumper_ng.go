@@ -25,8 +25,7 @@ func SoftwareChannelTableNamesNG() []string {
 	}
 }
 
-func processAndInsertChannelsNG(db *sql.DB, writer *bufio.Writer, options DumperOptions) {
-	channels := loadChannelsToProcess(db, options.ChannelLabels, options.ChannelWithChildrenLabels)
+func processAndInsertChannelsNG(db *sql.DB, writer *bufio.Writer, options DumperOptions, channels []string) {
 	log.Info().Msgf("%d channels to process", len(channels))
 	skipExportTables := []string{"rhnerrata", "rhnchannelerrata", "rhnpackage", "rhnchannelpackage", "rhnerratapackage"}
 	schemaMetadata := schemareader.ReadTablesSchema(db, SoftwareChannelTableNamesNG(), skipExportTables)
@@ -73,16 +72,14 @@ func processChannelNG(db *sql.DB, writer *bufio.Writer, channelLabel string,
 	log.Debug().Msg("finished print table order")
 	generateChannelChildLink(db, channelLabel, writer)
 
-	if !options.MetadataOnly {
-		log.Debug().Msg("dumping all package files")
-		source := fmt.Sprintf("/var/cache/rhn/repodata/%s", channelLabel)
-		target := fmt.Sprintf("%s/repos/%s/repodata", options.GetOutputFolderAbsPath(), channelLabel)
-		if err := syncChannelMetadata(source, target); err != nil {
-			log.Panic().Err(err).Str("source", source).Str("destination", target).
-				Msgf("could not sync channel metadata with rsync: %v", err)
-		}
-		packageFilesOutput := fmt.Sprintf("%s/repos/%s/getPackage", options.GetOutputFolderAbsPath(), channelLabel)
-		packageDumper.DumpPackageFilesNG(db, schemaMetadata, tableData, packageFilesOutput)
+	log.Debug().Msg("dumping all package files")
+	source := fmt.Sprintf("/var/cache/rhn/repodata/%s", channelLabel)
+	target := fmt.Sprintf("%s/repos/%s/repodata", options.GetOutputFolderAbsPath(), channelLabel)
+	if err := syncChannelMetadata(source, target); err != nil {
+		log.Panic().Err(err).Str("source", source).Str("destination", target).
+			Msgf("could not sync channel metadata with rsync: %v", err)
 	}
+	packageFilesOutput := fmt.Sprintf("%s/repos/%s/getPackage", options.GetOutputFolderAbsPath(), channelLabel)
+	packageDumper.DumpPackageFilesNG(db, schemaMetadata, tableData, packageFilesOutput)
 	log.Debug().Msg("channel export finished")
 }

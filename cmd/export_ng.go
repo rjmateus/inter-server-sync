@@ -35,6 +35,7 @@ func newExportNGCommand() *cobra.Command {
 		},
 	}
 	flags := command.Flags()
+	flags.BoolVar(&options.Force, "force", false, "Skip export directory confirmation prompts (channel scope cannot be reduced)")
 	flags.StringSliceVar(&options.ChannelLabels, "channels", nil, "Channels to be exported")
 	flags.StringSliceVar(&options.ChannelWithChildrenLabels, "channel-with-children", nil, "Channels to be exported")
 	flags.StringVar(&options.OutputFolder, "outputDir", ".", "Location for generated data")

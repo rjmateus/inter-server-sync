@@ -44,6 +44,9 @@ func TestExportFlagsAreIndependent(t *testing.T) {
 		"signKey": "/tmp/signing-key", "certificate": "/tmp/certificate", "passfile": "/tmp/password",
 	}
 	exportNGCmd.LocalNonPersistentFlags().VisitAll(func(ngFlag *pflag.Flag) {
+		if ngFlag.Name == "force" {
+			return // NG-only flags are tested separately below.
+		}
 		t.Run(ngFlag.Name, func(t *testing.T) {
 			legacy := exportCmd.Flags().Lookup(ngFlag.Name)
 			if legacy == nil || legacy.DefValue != ngFlag.DefValue || legacy.Value.Type() != ngFlag.Value.Type() {
@@ -76,4 +79,23 @@ func TestExportFlagsAreIndependent(t *testing.T) {
 			}
 		})
 	})
+}
+
+func TestExportNGForceFlag(t *testing.T) {
+	if exportCmd.Flags().Lookup("force") != nil {
+		t.Fatal("force must not be exposed by legacy export")
+	}
+	command := newExportNGCommand()
+	if value, err := command.Flags().GetBool("force"); err != nil || value {
+		t.Fatalf("force default = %v, error = %v", value, err)
+	}
+	if err := command.ParseFlags([]string{"--force"}); err != nil {
+		t.Fatal(err)
+	}
+	if value, err := command.Flags().GetBool("force"); err != nil || !value {
+		t.Fatalf("parsed force = %v, error = %v", value, err)
+	}
+	if value, err := newExportNGCommand().Flags().GetBool("force"); err != nil || value {
+		t.Fatal("force state leaked between command instances")
+	}
 }

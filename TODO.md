@@ -1,16 +1,15 @@
 In the new channels NG exporter:
 
-- we need a new "validateExportFolder":
-    - If the folder is empty, all good procede
-    - Do not fail if the directory is empty
-    - Check the list of channels to export. If a channel is on the export dir in file `exportedChannels.txt` and not part of the export list, abort. We cannot reduce the scope. If a new channel is part of the input export list of channels and not part of the channels in the control file on the file system, that is ok
-    - If a new channel is added ask for confirmation before procede
-    - If no file is found and the folder is not empty, ask for confirmation
+- [x] Implement NG export folder validation:
+    - Accept missing or empty directories without confirmation.
+    - Compare resolved channels, including children, against `exportedChannels.txt`; never allow scope reduction.
+    - Ask for confirmation (default No) when adding channels or when a nonempty directory has no control file.
+    - Support NG-only `--force` to skip prompts, but not scope checks or filesystem errors.
 
 
-- If the previous check passes
-    - remove the files: `exportedChannels.txt`, `hubserver.pem`, `sql_statements.sql.gz`, `sql_statements.sql.gz.sha512` and `version.txt`
-    - this files will be recreated by the export
+- [x] After validation and approval, remove generated metadata before recreating it:
+    - `exportedChannels.txt`, `hubserver.pem`, `sql_statements.sql.gz`, `sql_statements.sql.gz.sha512`, and `version.txt`.
+    - Preserve repository/package data and unrelated files; abort on cleanup errors.
 
 - In the export, channel dumper_ng, there are locations that are hardcoded on the code. They should be read from the configuration files.
 
@@ -22,5 +21,5 @@ In the new channels NG exporter:
 
 - On the channelDataDuper_NG move the list of tables to variables outside methods
 
-- Package dumper should be separated between NG and old one
-    - It should use a rsync, wich should be faster for next exports, since it will not copy if it have not changed
+>- Package dumper should be separated between NG and old one
+|    - It should use a rsync, wich should be faster for next exports, since it will not copy if it have not changed - NOT IMPLEMENTED FOR NOW

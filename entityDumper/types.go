@@ -23,6 +23,7 @@ type DumperOptions struct {
 	Orgs                      []uint
 	SignKey                   string
 	PassFile                  string
+	Force                     bool
 }
 
 func (opt *DumperOptions) GetOutputFolderAbsPath() string {

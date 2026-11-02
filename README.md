@@ -36,11 +36,32 @@ and copies repository metadata and packages into `repos/<channel>/repodata` and
 are omitted by this implementation; repositories are synchronized during import.
 
 The commands have independent flags and option values. Common flags retain their
-existing names and defaults. `--repoBaseExporter` is accepted only by `export-ng`;
-it is retained from the new implementation but currently does not change its behavior.
-`--metadataOnly` skips repository metadata and package file copying in `export-ng`.
-`--noChangelogs` is retained for CLI compatibility on `export-ng`, which does not
-export package changelog tables. Use an empty output directory for either command.
+existing names and defaults. `--metadataOnly`, `--noChangelogs`,
+`--packagesOnlyAfter`, and `--repoBaseExporter` are not available in `export-ng`.
+The legacy `export` command still requires an empty output directory.
+
+#### Reusing an NG export directory
+
+`export-ng` creates a missing output directory and accepts an empty directory
+without confirmation. For an existing export, it compares the resolved channel
+selection (including children) with `exportedChannels.txt`:
+
+- Every previously exported channel must remain selected. Reducing the scope
+    always aborts, even with `--force`.
+- An unchanged channel set proceeds without confirmation.
+- Adding channels requires confirmation. A nonempty directory without
+    `exportedChannels.txt` also requires confirmation because its scope is unknown.
+
+Prompts default to No: enter `y` or `yes` to proceed. Blank input, rejection,
+closed input, and input errors abort without changing existing export files.
+For automation, `--force` skips these confirmation prompts only; it does not
+bypass scope checks or filesystem errors.
+
+After validation and approval, the exporter removes `exportedChannels.txt`,
+`hubserver.pem`, `sql_statements.sql.gz`, `sql_statements.sql.gz.sha512`, and
+`version.txt` before regenerating them. Repository/package data under `repos/`
+and unrelated files are preserved. Cleanup errors stop the export; cleanup is
+not transactional, so files removed before an error are not restored.
 
 ### on target server
 - **Run command: `inter-server-sync import --importDir ~/export/`

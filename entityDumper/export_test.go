@@ -9,6 +9,8 @@ import (
 	"bytes"
 	"database/sql"
 	"database/sql/driver"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -47,6 +49,15 @@ func TestChannelCacheSQLIsLegacyOnly(t *testing.T) {
 		{"ng", processChannelNG, false},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
+			if tt.name == "ng" {
+				// NG always copies repository metadata, even for an empty crawl.
+				// This SQL-policy test must not depend on server files or real rsync.
+				bin := t.TempDir()
+				if err := os.WriteFile(filepath.Join(bin, "rsync"), []byte("#!/bin/sh\nexit 0\n"), 0700); err != nil {
+					t.Fatal(err)
+				}
+				t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+			}
 			db, mock, err := sqlmock.New()
 			if err != nil {
 				t.Fatal(err)
