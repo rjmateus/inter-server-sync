@@ -8,16 +8,13 @@ import (
 	"github.com/uyuni-project/inter-server-sync/utils"
 )
 
-type DumperOptions struct {
+type DumperOptionsNG struct {
 	ServerConfig              string
 	ChannelLabels             []string
 	ConfigLabels              []string
 	ChannelWithChildrenLabels []string
 	OutputFolder              string
 	outputFolderAbsPath       string
-	MetadataOnly              bool
-	NoChangelogs              bool
-	StartingDate              string
 	Containers                bool
 	OSImages                  bool
 	Orgs                      []uint
@@ -25,13 +22,14 @@ type DumperOptions struct {
 	PassFile                  string
 }
 
-// DumperOptionsNG contains options specific to the repository-based exporter.
-type DumperOptionsNG struct {
-	DumperOptions
-	RepoBaseExporter bool
+type DumperOptions struct {
+	DumperOptionsNG
+	MetadataOnly bool
+	NoChangelogs bool
+	StartingDate string
 }
 
-func (opt *DumperOptions) GetOutputFolderAbsPath() string {
+func (opt *DumperOptionsNG) GetOutputFolderAbsPath() string {
 	if "" == opt.outputFolderAbsPath {
 		opt.outputFolderAbsPath = utils.GetAbsPath(opt.OutputFolder)
 	}

@@ -14,11 +14,11 @@ In the new channels NG exporter:
 
 - In the export, channel dumper_ng, there are locations that are hardcoded on the code. They should be read from the configuration files.
 
-- remove unsude parameters for export NG, and re-organize the options object
-    - `metadataOnly`
-    - `noChangelogs`
-    - `packagesOnlyAfter`
-    - `repoBaseExporter`
+>- remove unsude parameters for export NG, and re-organize the options object
+>    - `metadataOnly`
+>    - `noChangelogs`
+>    - `packagesOnlyAfter`
+>    - `repoBaseExporter`
 
 - On the channelDataDuper_NG move the list of tables to variables outside methods
 

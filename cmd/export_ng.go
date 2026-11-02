@@ -38,9 +38,6 @@ func newExportNGCommand() *cobra.Command {
 	flags.StringSliceVar(&options.ChannelLabels, "channels", nil, "Channels to be exported")
 	flags.StringSliceVar(&options.ChannelWithChildrenLabels, "channel-with-children", nil, "Channels to be exported")
 	flags.StringVar(&options.OutputFolder, "outputDir", ".", "Location for generated data")
-	flags.BoolVar(&options.MetadataOnly, "metadataOnly", false, "export only metadata")
-	flags.BoolVar(&options.NoChangelogs, "noChangelogs", false, "Skip exporting packages changelogs")
-	flags.StringVar(&options.StartingDate, "packagesOnlyAfter", "", "Only export packages added or modified after the specified date (date format can be 'YYYY-MM-DD' or 'YYYY-MM-DD hh:mm:ss')")
 	flags.StringSliceVar(&options.ConfigLabels, "configChannels", nil, "Configuration Channels to be exported")
 	flags.BoolVar(&options.OSImages, "images", false, "Export OS images and associated metadata")
 	flags.BoolVar(&options.Containers, "containers", false, "Export containers metadata")
@@ -48,17 +45,11 @@ func newExportNGCommand() *cobra.Command {
 	flags.StringVar(&options.SignKey, "signKey", "/etc/pki/tls/private/spacewalk.key", "Private certificate used for signing the export")
 	flags.StringVar(&certificate, "certificate", "/etc/pki/tls/certs/spacewalk.crt", "Public certificate to be included in the export. Subject of CA validation during import")
 	flags.StringVar(&options.PassFile, "passfile", "", "Path to the file with certificate password if needed")
-	flags.BoolVar(&options.RepoBaseExporter, "repoBaseExporter", false, "Enable exporting repository base")
 	return command
 }
 
 func runExportNG(options entityDumper.DumperOptionsNG, certificate string) {
 	log.Info().Msg("Export NG started")
-	validatedDate, ok := utils.ValidateDate(options.StartingDate)
-	if !ok {
-		log.Fatal().Msg("Unable to validate the date. Allowed formats are 'YYYY-MM-DD' or 'YYYY-MM-DD hh:mm:ss'")
-	}
-	options.StartingDate = validatedDate
 	options.ServerConfig = serverConfig
 
 	if _, err := os.Stat(options.SignKey); err != nil {
