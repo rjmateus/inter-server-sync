@@ -72,7 +72,7 @@ func TestPackageFilePaths(t *testing.T) {
 		orgID      interface{}
 		wantOrg    string
 	}{
-		{name: "organization ID", storedPath: "packages/NULL/e8c/release/noarch/hash/package.rpm", orgID: int64(42), wantOrg: "42"},
+		{name: "organization ID", storedPath: "packages/NULL/e8c/release/noarch/hash/package.rpm", orgID: []byte("42"), wantOrg: "42"},
 		{name: "null organization ID", storedPath: "packages/NULL/e8c/release/noarch/hash/package.rpm", orgID: nil, wantOrg: "NULL"},
 	}
 
