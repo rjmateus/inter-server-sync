@@ -24,7 +24,7 @@ func init() {
 
 // Each command instance owns its flag values, independently of legacy export.
 func newExportNGCommand() *cobra.Command {
-	var options entityDumper.DumperOptionsNG
+	var options entityDumper.DumperOptions
 	var certificate string
 	command := &cobra.Command{
 		Use:   "export-ng",
@@ -48,7 +48,7 @@ func newExportNGCommand() *cobra.Command {
 	return command
 }
 
-func runExportNG(options entityDumper.DumperOptionsNG, certificate string) {
+func runExportNG(options entityDumper.DumperOptions, certificate string) {
 	log.Info().Msg("Export NG started")
 	options.ServerConfig = serverConfig
 

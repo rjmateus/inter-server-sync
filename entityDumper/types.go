@@ -8,13 +8,16 @@ import (
 	"github.com/uyuni-project/inter-server-sync/utils"
 )
 
-type DumperOptionsNG struct {
+type DumperOptions struct {
 	ServerConfig              string
 	ChannelLabels             []string
 	ConfigLabels              []string
 	ChannelWithChildrenLabels []string
 	OutputFolder              string
 	outputFolderAbsPath       string
+	MetadataOnly              bool
+	NoChangelogs              bool
+	StartingDate              string
 	Containers                bool
 	OSImages                  bool
 	Orgs                      []uint
@@ -22,18 +25,15 @@ type DumperOptionsNG struct {
 	PassFile                  string
 }
 
-type DumperOptions struct {
-	DumperOptionsNG
-	MetadataOnly bool
-	NoChangelogs bool
-	StartingDate string
+func (opt *DumperOptions) GetOutputFolderAbsPath() string {
+	return getOutputFolderAbsPath(&opt.outputFolderAbsPath, opt.OutputFolder)
 }
 
-func (opt *DumperOptionsNG) GetOutputFolderAbsPath() string {
-	if "" == opt.outputFolderAbsPath {
-		opt.outputFolderAbsPath = utils.GetAbsPath(opt.OutputFolder)
+func getOutputFolderAbsPath(absPath *string, outputFolder string) string {
+	if *absPath == "" {
+		*absPath = utils.GetAbsPath(outputFolder)
 	}
-	return opt.outputFolderAbsPath
+	return *absPath
 }
 
 type channelsProcess struct {

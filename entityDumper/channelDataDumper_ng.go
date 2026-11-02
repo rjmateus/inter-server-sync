@@ -26,7 +26,7 @@ func SoftwareChannelTableNamesNG() []string {
 }
 
 func processAndInsertChannelsNG(db *sql.DB, writer *bufio.Writer, options DumperOptions) {
-	channels := loadChannelsToProcess(db, options)
+	channels := loadChannelsToProcess(db, options.ChannelLabels, options.ChannelWithChildrenLabels)
 	log.Info().Msgf("%d channels to process", len(channels))
 	skipExportTables := []string{"rhnerrata", "rhnchannelerrata", "rhnpackage", "rhnchannelpackage", "rhnerratapackage"}
 	schemaMetadata := schemareader.ReadTablesSchema(db, SoftwareChannelTableNamesNG(), skipExportTables)

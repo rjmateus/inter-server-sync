@@ -128,10 +128,10 @@ var childChannelSql = "select label from rhnchannel " +
 var singleChannelSql = "select label from rhnchannel " +
 	"where label = $1"
 
-func loadChannelsToProcess(db *sql.DB, options DumperOptions) []string {
+func loadChannelsToProcess(db *sql.DB, channelLabels, channelWithChildrenLabels []string) []string {
 	log.Trace().Msg("Loading channel list")
 	channels := channelsProcess{make(map[string]bool), make([]string, 0)}
-	for _, singleChannel := range options.ChannelLabels {
+	for _, singleChannel := range channelLabels {
 		if _, ok := channels.channelsMap[singleChannel]; !ok {
 			dbChannel := sqlUtil.ExecuteQueryWithResults(db, singleChannelSql, singleChannel)
 			if len(dbChannel) == 0 {
@@ -141,7 +141,7 @@ func loadChannelsToProcess(db *sql.DB, options DumperOptions) []string {
 		}
 	}
 
-	for _, channelChildren := range options.ChannelWithChildrenLabels {
+	for _, channelChildren := range channelWithChildrenLabels {
 		if _, ok := channels.channelsMap[channelChildren]; !ok {
 			dbChannel := sqlUtil.ExecuteQueryWithResults(db, singleChannelSql, channelChildren)
 			if len(dbChannel) == 0 {
@@ -183,7 +183,7 @@ func processAndInsertProducts(db *sql.DB, writer *bufio.Writer) {
 
 func processAndInsertChannels(db *sql.DB, writer *bufio.Writer, options DumperOptions) {
 
-	channels := loadChannelsToProcess(db, options)
+	channels := loadChannelsToProcess(db, options.ChannelLabels, options.ChannelWithChildrenLabels)
 	log.Info().Msg(fmt.Sprintf("%d channels to process", len(channels)))
 
 	channelTables := SoftwareChannelTableNames()

@@ -28,40 +28,30 @@ func TestExportCommands(t *testing.T) {
 	if reflect.ValueOf(exportCmd.Run).Pointer() == reflect.ValueOf(exportNGCmd.Run).Pointer() {
 		t.Fatal("commands share a run handler")
 	}
-	if exportCmd.Flags().Lookup("repoBaseExporter") != nil {
-		t.Fatal("legacy export exposes NG-only flag")
-	}
-	if err := exportCmd.ParseFlags([]string{"--repoBaseExporter"}); err == nil {
-		t.Fatal("legacy export accepts NG-only flag")
-	}
 	ng := newExportNGCommand()
-	flag := ng.Flags().Lookup("repoBaseExporter")
-	if flag == nil || flag.DefValue != "false" {
-		t.Fatal("NG repository flag missing or has incorrect default")
-	}
-	if err := ng.ParseFlags([]string{"--repoBaseExporter"}); err != nil {
-		t.Fatal(err)
+	for _, legacyOnly := range []string{"noChangelogs", "packagesOnlyAfter", "metadataOnly"} {
+		if ng.Flags().Lookup(legacyOnly) != nil {
+			t.Errorf("export-ng unexpectedly exposes legacy-only flag %q", legacyOnly)
+		}
 	}
 }
 
 func TestExportFlagsAreIndependent(t *testing.T) {
 	values := map[string]string{
 		"channels": "channel-a,channel-b", "channel-with-children": "parent",
-		"outputDir": "/tmp/export-test", "metadataOnly": "true", "noChangelogs": "true",
-		"packagesOnlyAfter": "2026-01-01", "configChannels": "config-a,config-b",
+		"outputDir": "/tmp/export-test", "configChannels": "config-a,config-b",
 		"images": "true", "containers": "true", "orgLimit": "1,2",
 		"signKey": "/tmp/signing-key", "certificate": "/tmp/certificate", "passfile": "/tmp/password",
 	}
-	exportCmd.LocalNonPersistentFlags().VisitAll(func(legacy *pflag.Flag) {
-		t.Run(legacy.Name, func(t *testing.T) {
-			ng := newExportNGCommand()
-			ngFlag := ng.Flags().Lookup(legacy.Name)
-			if ngFlag == nil || legacy.DefValue != ngFlag.DefValue || legacy.Value.Type() != ngFlag.Value.Type() {
-				t.Fatalf("incompatible common flag %s", legacy.Name)
+	exportNGCmd.LocalNonPersistentFlags().VisitAll(func(ngFlag *pflag.Flag) {
+		t.Run(ngFlag.Name, func(t *testing.T) {
+			legacy := exportCmd.Flags().Lookup(ngFlag.Name)
+			if legacy == nil || legacy.DefValue != ngFlag.DefValue || legacy.Value.Type() != ngFlag.Value.Type() {
+				t.Fatalf("incompatible common flag %s", ngFlag.Name)
 			}
-			value, ok := values[legacy.Name]
+			value, ok := values[ngFlag.Name]
 			if !ok {
-				t.Fatalf("missing test value for %s", legacy.Name)
+				t.Fatalf("missing test value for %s", ngFlag.Name)
 			}
 			original := legacy.Value.String()
 			if slice, ok := legacy.Value.(pflag.SliceValue); ok {
@@ -76,7 +66,7 @@ func TestExportFlagsAreIndependent(t *testing.T) {
 			if legacy.Value.String() != original {
 				t.Fatal("NG flag changed legacy state")
 			}
-			fresh := newExportNGCommand().Flags().Lookup(legacy.Name)
+			fresh := newExportNGCommand().Flags().Lookup(ngFlag.Name)
 			ngValue := ngFlag.Value.String()
 			if err := legacy.Value.Set(value); err != nil {
 				t.Fatal(err)

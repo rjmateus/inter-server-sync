@@ -8,6 +8,7 @@ import (
 	"bufio"
 	"bytes"
 	"database/sql"
+	"database/sql/driver"
 	"reflect"
 	"strings"
 	"testing"
@@ -52,7 +53,7 @@ func TestChannelCacheSQLIsLegacyOnly(t *testing.T) {
 			}
 			defer db.Close()
 			mock.ExpectQuery("SELECT \\* FROM rhnchannel WHERE label = 'test-channel'").WillReturnRows(sqlmock.NewRows([]string{"id"}))
-			mock.ExpectQuery("select label from rhnchannel").WithArgs("test-channel").WillReturnRows(sqlmock.NewRows([]string{"label"}))
+			mock.ExpectQuery("select label from rhnchannel").WithArgs(driver.Value("test-channel")).WillReturnRows(sqlmock.NewRows([]string{"label"}))
 			var output bytes.Buffer
 			writer := bufio.NewWriter(&output)
 			schema := map[string]schemareader.Table{"rhnchannel": {Name: "rhnchannel", Export: true, Columns: []string{"id"}}}

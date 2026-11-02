@@ -7,7 +7,6 @@ package entityDumper
 import (
 	"bufio"
 	"compress/gzip"
-	"database/sql"
 	"os"
 	"path"
 
@@ -16,13 +15,9 @@ import (
 	"github.com/uyuni-project/inter-server-sync/utils"
 )
 
-func DumpAllEntities(options DumperOptions) {
-	dumpEntities(options, processAndInsertChannels)
-}
-
 // dumpEntities shares only the export lifecycle; channel policies belong to each exporter.
-func dumpEntities(options DumperOptions, processChannels func(*sql.DB, *bufio.Writer, DumperOptions)) {
-	var outputFolderAbs = options.GetOutputFolderAbsPath()
+func DumpAllEntities(options DumperOptions) {
+	outputFolderAbs := options.GetOutputFolderAbsPath()
 	validateExportFolder(outputFolderAbs)
 
 	outFile := path.Join(outputFolderAbs, "/sql_statements.sql.gz")
@@ -43,7 +38,7 @@ func dumpEntities(options DumperOptions, processChannels func(*sql.DB, *bufio.Wr
 	bufferWriter.WriteString("BEGIN;\n")
 	if len(options.ChannelLabels) > 0 || len(options.ChannelWithChildrenLabels) > 0 {
 		processAndInsertProducts(db, bufferWriter)
-		processChannels(db, bufferWriter, options)
+		processAndInsertChannels(db, bufferWriter, options)
 	}
 	if len(options.ConfigLabels) > 0 {
 		processConfigs(db, bufferWriter, options)
