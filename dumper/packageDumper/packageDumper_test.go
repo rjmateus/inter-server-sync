@@ -15,11 +15,9 @@ import (
 )
 
 func TestPackageDumpLayouts(t *testing.T) {
-	previousRoot := serverDataFolder
-	serverDataFolder = t.TempDir()
-	defer func() { serverDataFolder = previousRoot }()
+	sourceRoot := t.TempDir()
 	const storedPath = "packages/NULL/hash/package.rpm"
-	source := filepath.Join(serverDataFolder, storedPath)
+	source := filepath.Join(sourceRoot, storedPath)
 	if err := os.MkdirAll(filepath.Dir(source), 0755); err != nil {
 		t.Fatal(err)
 	}
@@ -50,9 +48,9 @@ func TestPackageDumpLayouts(t *testing.T) {
 			if ng {
 				output = filepath.Join(output, "repos", "channel", "getPackage")
 				target = filepath.Join(output, "NULL", "hash", "package.rpm")
-				DumpPackageFilesNG(db, schema, data, output)
+				DumpPackageFilesNG(db, schema, data, output, sourceRoot)
 			} else {
-				DumpPackageFiles(db, schema, data, output)
+				DumpPackageFiles(db, schema, data, output, sourceRoot)
 			}
 			contents, err := os.ReadFile(target)
 			if err != nil || string(contents) != "package data" {

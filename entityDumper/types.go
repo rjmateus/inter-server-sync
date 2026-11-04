@@ -24,6 +24,16 @@ type DumperOptions struct {
 	SignKey                   string
 	PassFile                  string
 	Force                     bool
+	StoragePaths              utils.StoragePaths
+}
+
+func (opt *DumperOptions) loadStoragePaths() error {
+	paths, err := utils.ReadStoragePaths(opt.ServerConfig)
+	if err != nil {
+		return err
+	}
+	opt.StoragePaths = paths
+	return nil
 }
 
 func (opt *DumperOptions) GetOutputFolderAbsPath() string {

@@ -20,6 +20,9 @@ import (
 
 // DumpAllEntitiesNG exports channels using repository metadata and package files.
 func DumpAllEntitiesNG(options DumperOptions) {
+	if err := options.loadStoragePaths(); err != nil {
+		log.Fatal().Err(err).Msg("Error loading storage configuration")
+	}
 	outputFolderAbs := options.GetOutputFolderAbsPath()
 	db := schemareader.GetDBconnection(options.ServerConfig)
 	defer db.Close()

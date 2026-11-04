@@ -52,6 +52,10 @@ func init() {
 }
 
 func runImport(cmd *cobra.Command, args []string) {
+	storagePaths, err := utils.ReadStoragePaths(serverConfig)
+	if err != nil {
+		log.Fatal().Err(err).Msg("Error loading storage configuration")
+	}
 	password, err := getXMLRPCPassword(xmlRpcPassword, xmlRpcPasswordFile)
 	if err != nil {
 		log.Fatal().Err(err).Msg(err.Error())
@@ -90,7 +94,9 @@ func runImport(cmd *cobra.Command, args []string) {
 	}
 	log.Info().Msg("Importing...")
 
-	runPackageFileSync(absImportDir)
+	if err := runPackageFileSync(absImportDir, storagePaths.PackageRoot()); err != nil {
+		log.Fatal().Err(err).Msg("error importing package files")
+	}
 
 	runImageFileSync(absImportDir, serverConfig)
 
@@ -204,15 +210,24 @@ func hasConfigChannels(absImportDir string) bool {
 	return err == nil || os.IsExist(err)
 }
 
-func runPackageFileSync(absImportDir string) {
-	packagesImportDir := fmt.Sprintf("%s/packages/", absImportDir)
+func runPackageFileSync(absImportDir, mountPoint string) error {
+	return runPackageFileSyncWithRunner(absImportDir, mountPoint, func(command string, args ...string) error {
+		cmd := exec.Command(command, args...)
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		return cmd.Run()
+	})
+}
+
+func runPackageFileSyncWithRunner(absImportDir, mountPoint string, run func(string, ...string) error) error {
+	packagesImportDir := filepath.Join(absImportDir, "packages") + string(os.PathSeparator)
 	err := utils.FolderExists(packagesImportDir)
 	if err != nil {
 		if os.IsNotExist(err) {
 			log.Info().Msg("no package files to import")
-			return
+			return nil
 		} else {
-			log.Fatal().Err(err).Msg("Error getting import packages folder")
+			return fmt.Errorf("get import packages folder: %w", err)
 		}
 	}
 
@@ -222,16 +237,13 @@ func runPackageFileSync(absImportDir string) {
 	}
 
 	rsyncParams = append(rsyncParams, "-og", "--chown=wwwrun:www", "-r",
-		packagesImportDir, "/var/spacewalk/packages/")
+		packagesImportDir, filepath.Join(mountPoint, "packages")+string(os.PathSeparator))
 
-	cmd := exec.Command("rsync", rsyncParams...)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
 	log.Info().Msg("starting importing package files")
-	err = cmd.Run()
-	if err != nil {
-		log.Fatal().Err(err).Msg("error importing package files")
+	if err := run("rsync", rsyncParams...); err != nil {
+		return fmt.Errorf("sync import packages: %w", err)
 	}
+	return nil
 }
 
 func runConfigFilesSync(labels []string, user string, password string) (interface{}, error) {

@@ -17,6 +17,7 @@ import (
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/uyuni-project/inter-server-sync/schemareader"
+	"github.com/uyuni-project/inter-server-sync/utils"
 )
 
 func TestExportChannelTables(t *testing.T) {
@@ -44,16 +45,21 @@ func TestChannelCacheSQLIsLegacyOnly(t *testing.T) {
 		name      string
 		process   func(*sql.DB, *bufio.Writer, string, map[string]schemareader.Table, DumperOptions)
 		wantCache bool
+		cacheRoot string
 	}{
-		{"legacy", processChannel, true},
-		{"ng", processChannelNG, false},
+		{"legacy", processChannel, true, ""},
+		{"ng", processChannelNG, false, ""},
+		{"ng custom cache", processChannelNG, false, "/custom cache/"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			if tt.name == "ng" {
+			var rsyncLog string
+			if !tt.wantCache {
 				// NG always copies repository metadata, even for an empty crawl.
 				// This SQL-policy test must not depend on server files or real rsync.
 				bin := t.TempDir()
-				if err := os.WriteFile(filepath.Join(bin, "rsync"), []byte("#!/bin/sh\nexit 0\n"), 0700); err != nil {
+				rsyncLog = filepath.Join(bin, "args")
+				t.Setenv("ISS_TEST_RSYNC_ARGS", rsyncLog)
+				if err := os.WriteFile(filepath.Join(bin, "rsync"), []byte("#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$ISS_TEST_RSYNC_ARGS\"\n"), 0700); err != nil {
 					t.Fatal(err)
 				}
 				t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
@@ -68,8 +74,19 @@ func TestChannelCacheSQLIsLegacyOnly(t *testing.T) {
 			var output bytes.Buffer
 			writer := bufio.NewWriter(&output)
 			schema := map[string]schemareader.Table{"rhnchannel": {Name: "rhnchannel", Export: true, Columns: []string{"id"}}}
-			tt.process(db, writer, "test-channel", schema, DumperOptions{MetadataOnly: true})
+			tt.process(db, writer, "test-channel", schema, DumperOptions{MetadataOnly: true, StoragePaths: utils.StoragePaths{RepomdCacheMountPoint: tt.cacheRoot}})
 			writer.Flush()
+			if rsyncLog != "" {
+				args, err := os.ReadFile(rsyncLog)
+				root := tt.cacheRoot
+				if root == "" {
+					root = utils.DefaultRepomdCacheMountPoint
+				}
+				wantSource := filepath.Join(root, "test-channel") + "/"
+				if err != nil || !strings.Contains(string(args), "\n"+wantSource+"\n") {
+					t.Errorf("rsync args=%q, error=%v, want source %q", args, err, wantSource)
+				}
+			}
 			for _, sql := range []string{"set modified = current_timestamp", "rhn_channel.update_needed_cache", "rhn_channel.refresh_newest_package", "INSERT INTO rhnRepoRegenQueue"} {
 				if strings.Contains(output.String(), sql) != tt.wantCache {
 					t.Errorf("cache SQL %q presence incorrect in %s export", sql, tt.name)

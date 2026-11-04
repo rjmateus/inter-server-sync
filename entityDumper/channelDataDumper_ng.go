@@ -9,6 +9,7 @@ import (
 	"database/sql"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/rs/zerolog/log"
 	"github.com/uyuni-project/inter-server-sync/dumper"
@@ -73,13 +74,13 @@ func processChannelNG(db *sql.DB, writer *bufio.Writer, channelLabel string,
 	generateChannelChildLink(db, channelLabel, writer)
 
 	log.Debug().Msg("dumping all package files")
-	source := fmt.Sprintf("/var/cache/rhn/repodata/%s", channelLabel)
+	serverCacheFolder := filepath.Join(options.StoragePaths.RepositoryMetadataRoot(), channelLabel)
 	target := fmt.Sprintf("%s/repos/%s/repodata", options.GetOutputFolderAbsPath(), channelLabel)
-	if err := syncChannelMetadata(source, target); err != nil {
-		log.Panic().Err(err).Str("source", source).Str("destination", target).
+	if err := syncChannelMetadata(serverCacheFolder, target); err != nil {
+		log.Panic().Err(err).Str("source", serverCacheFolder).Str("destination", target).
 			Msgf("could not sync channel metadata with rsync: %v", err)
 	}
 	packageFilesOutput := fmt.Sprintf("%s/repos/%s/getPackage", options.GetOutputFolderAbsPath(), channelLabel)
-	packageDumper.DumpPackageFilesNG(db, schemaMetadata, tableData, packageFilesOutput)
+	packageDumper.DumpPackageFilesNG(db, schemaMetadata, tableData, packageFilesOutput, options.StoragePaths.PackageRoot())
 	log.Debug().Msg("channel export finished")
 }

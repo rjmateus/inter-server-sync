@@ -66,6 +66,25 @@ not transactional, so files removed before an error are not restored.
 ### on target server
 - **Run command: `inter-server-sync import --importDir ~/export/`
 
+## Storage configuration
+
+Export and import read optional storage settings from the local server's
+configuration selected by `--serverConfig` (default `/etc/rhn/rhn.conf`):
+
+| Setting | Default | Usage |
+| --- | --- | --- |
+| `mount_point` | `/var/spacewalk` | Package source root for both exporters; import copies legacy packages into `<mount_point>/packages/`. |
+| `repomd_cache_mount_point` | `/var/cache/rhn/repodata` | NG export reads metadata from `<repomd_cache_mount_point>/<channel>/`. |
+
+Missing or blank settings retain these defaults. Configuration read errors stop
+the operation before export cleanup or import copying. Export uses the source
+server's settings; import uses the destination server's settings, not paths from
+the export. No additional CLI flags are required.
+
+NG repository import continues to use `spacewalk-repo-sync`, which manages its
+own package and metadata storage configuration. The selected `--serverConfig`
+is not forwarded to that external command. Image storage paths are unchanged.
+
 ## Database connection configuration
 
 Database connection configuration are loaded by default from `/etc/rhn/rhn.conf`.

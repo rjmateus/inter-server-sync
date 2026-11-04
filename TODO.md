@@ -11,7 +11,7 @@ In the new channels NG exporter:
     - `exportedChannels.txt`, `hubserver.pem`, `sql_statements.sql.gz`, `sql_statements.sql.gz.sha512`, and `version.txt`.
     - Preserve repository/package data and unrelated files; abort on cleanup errors.
 
-- In the export, channel dumper_ng, there are locations that are hardcoded on the code. They should be read from the configuration files.
+- [x] Read package storage (`mount_point`) for both exporters and package import, and NG metadata cache (`repomd_cache_mount_point`) from the server configuration, retaining existing defaults.
 
 >- remove unsude parameters for export NG, and re-organize the options object
 >    - `metadataOnly`

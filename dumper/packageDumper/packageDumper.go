@@ -17,9 +17,7 @@ import (
 	"github.com/uyuni-project/inter-server-sync/sqlUtil"
 )
 
-var serverDataFolder = "/var/spacewalk"
-
-func DumpPackageFiles(db *sql.DB, schemaMetadata map[string]schemareader.Table, data dumper.DataDumper, outputFolder string) {
+func DumpPackageFiles(db *sql.DB, schemaMetadata map[string]schemareader.Table, data dumper.DataDumper, outputFolder, serverDataFolder string) {
 	dumpPackageFiles(db, schemaMetadata, data, func(row []sqlUtil.RowDataStructure, table schemareader.Table) (string, string, error) {
 		storedPath := row[table.ColumnIndexes["path"]].Value
 		return fmt.Sprintf("%s/%s", serverDataFolder, storedPath), fmt.Sprintf("%s/%s", outputFolder, storedPath), nil
@@ -27,7 +25,7 @@ func DumpPackageFiles(db *sql.DB, schemaMetadata map[string]schemareader.Table, 
 }
 
 // DumpPackageFilesNG copies packages into the repository getPackage layout.
-func DumpPackageFilesNG(db *sql.DB, schemaMetadata map[string]schemareader.Table, data dumper.DataDumper, outputFolder string) {
+func DumpPackageFilesNG(db *sql.DB, schemaMetadata map[string]schemareader.Table, data dumper.DataDumper, outputFolder, serverDataFolder string) {
 	dumpPackageFiles(db, schemaMetadata, data, func(row []sqlUtil.RowDataStructure, table schemareader.Table) (string, string, error) {
 		return packageFilePaths(serverDataFolder, outputFolder, fmt.Sprint(row[table.ColumnIndexes["path"]].Value), row[table.ColumnIndexes["org_id"]].Value)
 	})
@@ -83,7 +81,7 @@ func dumpPackageFiles(db *sql.DB, schemaMetadata map[string]schemareader.Table, 
 	processing = false
 }
 
-func packageFilePaths(sourceRoot, destinationRoot, storedPath string, orgID interface{}) (string, string, error) {
+func packageFilePaths(serverDataFolder, destinationRoot, storedPath string, orgID interface{}) (string, string, error) {
 	if storedPath == "" || strings.Contains(storedPath, `\`) {
 		return "", "", fmt.Errorf("invalid package path %q", storedPath)
 	}
@@ -103,9 +101,9 @@ func packageFilePaths(sourceRoot, destinationRoot, storedPath string, orgID inte
 	}
 
 	cleanPath := filepath.Clean(relativePath)
-	sourceRoot = filepath.Clean(sourceRoot)
-	source := filepath.Join(sourceRoot, cleanPath)
-	relativeSource, err := filepath.Rel(sourceRoot, source)
+	serverDataFolder = filepath.Clean(serverDataFolder)
+	source := filepath.Join(serverDataFolder, cleanPath)
+	relativeSource, err := filepath.Rel(serverDataFolder, source)
 	if err != nil || relativeSource == ".." || strings.HasPrefix(relativeSource, ".."+string(filepath.Separator)) {
 		return "", "", fmt.Errorf("package path escapes source directory: %q", storedPath)
 	}

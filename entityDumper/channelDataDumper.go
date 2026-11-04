@@ -242,7 +242,7 @@ func processChannel(db *sql.DB, writer *bufio.Writer, channelLabel string,
 
 	if !options.MetadataOnly {
 		log.Debug().Msg("dumping all package files")
-		packageDumper.DumpPackageFiles(db, schemaMetadata, tableData, options.GetOutputFolderAbsPath())
+		packageDumper.DumpPackageFiles(db, schemaMetadata, tableData, options.GetOutputFolderAbsPath(), options.StoragePaths.PackageRoot())
 	}
 	log.Debug().Msg("channel export finished")
 

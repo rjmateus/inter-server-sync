@@ -17,6 +17,9 @@ import (
 
 // dumpEntities shares only the export lifecycle; channel policies belong to each exporter.
 func DumpAllEntities(options DumperOptions) {
+	if err := options.loadStoragePaths(); err != nil {
+		log.Fatal().Err(err).Msg("Error loading storage configuration")
+	}
 	outputFolderAbs := options.GetOutputFolderAbsPath()
 	validateExportFolder(outputFolderAbs)
 
