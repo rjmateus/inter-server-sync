@@ -19,7 +19,9 @@ In the new channels NG exporter:
 >    - `packagesOnlyAfter`
 >    - `repoBaseExporter`
 
-- On the channelDataDuper_NG move the list of tables to variables outside methods
+>- On the channelDataDuper_NG move the list of tables to variables outside methods
 
 >- Package dumper should be separated between NG and old one
 |    - It should use a rsync, wich should be faster for next exports, since it will not copy if it have not changed - NOT IMPLEMENTED FOR NOW
+
+>- When check the export forlder, check if we have the old export folder, and if that exists, stop the export and say it's not compatible 

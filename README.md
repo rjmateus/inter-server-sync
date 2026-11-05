@@ -46,6 +46,8 @@ The legacy `export` command still requires an empty output directory.
 without confirmation. For an existing export, it compares the resolved channel
 selection (including children) with `exportedChannels.txt`:
 
+- A directory containing a `packages/` folder is a legacy (non-NG) export. It is
+    not compatible: the export aborts, even with `--force`.
 - Every previously exported channel must remain selected. Reducing the scope
     always aborts, even with `--force`.
 - An unchanged channel set proceeds without confirmation.

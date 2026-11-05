@@ -82,7 +82,7 @@ func TestChannelCacheSQLIsLegacyOnly(t *testing.T) {
 				if root == "" {
 					root = utils.DefaultRepomdCacheMountPoint
 				}
-				wantSource := filepath.Join(root, "test-channel") + "/"
+				wantSource := filepath.Join(root, "rhn/repodata", "test-channel") + "/"
 				if err != nil || !strings.Contains(string(args), "\n"+wantSource+"\n") {
 					t.Errorf("rsync args=%q, error=%v, want source %q", args, err, wantSource)
 				}

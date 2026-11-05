@@ -78,7 +78,7 @@ func processChannelNG(db *sql.DB, writer *bufio.Writer, channelLabel string,
 	generateChannelChildLink(db, channelLabel, writer)
 
 	log.Debug().Msg("dumping all package files")
-	serverCacheFolder := filepath.Join(options.StoragePaths.RepositoryMetadataRoot(), channelLabel)
+	serverCacheFolder := filepath.Join(options.StoragePaths.RepositoryMetadataRoot(), "rhn/repodata", channelLabel)
 	target := fmt.Sprintf("%s/repos/%s/repodata", options.GetOutputFolderAbsPath(), channelLabel)
 	if err := syncChannelMetadata(serverCacheFolder, target); err != nil {
 		log.Panic().Err(err).Str("source", serverCacheFolder).Str("destination", target).

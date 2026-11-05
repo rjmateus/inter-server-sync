@@ -113,6 +113,29 @@ func TestValidateExportFolderNgEmpty(t *testing.T) {
 	}
 }
 
+func TestValidateExportFolderNgLegacyExport(t *testing.T) {
+	for _, force := range []bool{false, true} {
+		dir := t.TempDir()
+		if err := os.MkdirAll(filepath.Join(dir, "packages", "1"), 0755); err != nil {
+			t.Fatal(err)
+		}
+		control := filepath.Join(dir, "exportedChannels.txt")
+		if err := os.WriteFile(control, []byte("a\n"), 0600); err != nil {
+			t.Fatal(err)
+		}
+		err := validateExportFolderNg(dir, []string{"a"}, force, func(string) (bool, error) {
+			t.Fatal("legacy export must fail before prompting")
+			return false, nil
+		})
+		if err == nil || !strings.Contains(err.Error(), "not compatible") {
+			t.Fatalf("force=%v: error = %v, want not compatible", force, err)
+		}
+		if _, statErr := os.Stat(control); statErr != nil {
+			t.Fatalf("force=%v: existing files must be untouched: %v", force, statErr)
+		}
+	}
+}
+
 func TestValidateExportFolderNgFilesystemErrors(t *testing.T) {
 	for _, target := range []string{"output", "exportedChannels.txt", "version.txt"} {
 		t.Run(target, func(t *testing.T) {

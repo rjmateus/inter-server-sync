@@ -76,6 +76,14 @@ func validateExportFolderNg(outputFolderAbs string, channels []string, force boo
 		return nil
 	}
 
+	// The legacy exporter stores package files in <output>/packages; that layout is incompatible with NG.
+	legacyPackages := path.Join(outputFolderAbs, "packages")
+	if info, err := os.Stat(legacyPackages); err == nil && info.IsDir() {
+		return fmt.Errorf("export directory %s contains a legacy export (packages folder); it is not compatible with the NG export, use a different directory or remove it", outputFolderAbs)
+	} else if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("inspect %s: %w", legacyPackages, err)
+	}
+
 	controlFile := path.Join(outputFolderAbs, "exportedChannels.txt")
 	data, err := os.ReadFile(controlFile)
 	var message string
