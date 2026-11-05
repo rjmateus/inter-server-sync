@@ -26,10 +26,14 @@ func SoftwareChannelTableNamesNG() []string {
 	}
 }
 
+// channelSkipExportTablesNG lists the tables whose data is not exported with the channels.
+func channelSkipExportTablesNG() []string {
+	return []string{"rhnerrata", "rhnchannelerrata", "rhnpackage", "rhnchannelpackage", "rhnerratapackage"}
+}
+
 func processAndInsertChannelsNG(db *sql.DB, writer *bufio.Writer, options DumperOptions, channels []string) {
 	log.Info().Msgf("%d channels to process", len(channels))
-	skipExportTables := []string{"rhnerrata", "rhnchannelerrata", "rhnpackage", "rhnchannelpackage", "rhnerratapackage"}
-	schemaMetadata := schemareader.ReadTablesSchema(db, SoftwareChannelTableNamesNG(), skipExportTables)
+	schemaMetadata := schemareader.ReadTablesSchema(db, SoftwareChannelTableNamesNG(), channelSkipExportTablesNG())
 	log.Debug().Msg("channel schema metadata loaded")
 
 	fileChannels, err := os.Create(options.GetOutputFolderAbsPath() + "/exportedChannels.txt")
