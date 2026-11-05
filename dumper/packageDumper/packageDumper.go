@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/rs/zerolog/log"
@@ -39,20 +40,24 @@ func dumpPackageFiles(db *sql.DB, schemaMetadata map[string]schemareader.Table, 
 	totalPackages := len(packageKeysData.Keys)
 	log.Debug().Msgf("Total package files to copy: %d", totalPackages)
 
-	exportedpackages := 0
-	processing := true
+	var exportedpackages int64
+	done := make(chan struct{})
+	defer close(done)
 
 	if log.Debug().Enabled() {
 		go func() {
 			count := 0
+			ticker := time.NewTicker(30 * time.Second)
+			defer ticker.Stop()
 			for {
-				if !processing {
-					break
+				select {
+				case <-done:
+					return
+				case <-ticker.C:
+					log.Debug().Msgf("#count: %d -- #exportedPackageFiles: #%d of %d",
+						count, atomic.LoadInt64(&exportedpackages), totalPackages)
+					count++
 				}
-				time.Sleep(30 * time.Second)
-				log.Debug().Msgf("#count: %d -- #exportedPackageFiles: #%d of %d",
-					count, exportedpackages, totalPackages)
-				count++
 			}
 		}()
 	}
@@ -74,11 +79,10 @@ func dumpPackageFiles(db *sql.DB, schemaMetadata map[string]schemareader.Table, 
 			if _, err := dumper.Copy(source, target); err != nil {
 				log.Panic().Err(err).Msg("could not copy package file")
 			}
-			exportedpackages++
+			atomic.AddInt64(&exportedpackages, 1)
 		}
 		exportPoint = upperLimit
 	}
-	processing = false
 }
 
 func packageFilePaths(serverDataFolder, destinationRoot, storedPath string, orgID interface{}) (string, string, error) {
