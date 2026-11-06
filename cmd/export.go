@@ -18,7 +18,7 @@ import (
 
 var exportCmd = &cobra.Command{
 	Use:   "export",
-	Short: "Export server entities to be imported in other server",
+	Short: "(Deprecated in favor of export_ng) Export server entities to be imported in other server",
 	Run:   runExport,
 }
 
