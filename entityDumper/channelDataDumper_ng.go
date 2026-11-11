@@ -9,11 +9,13 @@ import (
 	"database/sql"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/rs/zerolog/log"
 	"github.com/uyuni-project/inter-server-sync/dumper"
 	"github.com/uyuni-project/inter-server-sync/dumper/packageDumper"
 	"github.com/uyuni-project/inter-server-sync/schemareader"
+	"github.com/uyuni-project/inter-server-sync/utils"
 )
 
 // SoftwareChannelTableNamesNG excludes data supplied by repository synchronization.
@@ -45,7 +47,7 @@ func processAndInsertChannelsNG(db *sql.DB, writer *bufio.Writer, options Dumper
 
 	for index, channelLabel := range channels {
 		log.Info().Msgf("Processing channel [%d/%d] %s", index+1, len(channels), channelLabel)
-		if err := os.MkdirAll(options.GetOutputFolderAbsPath()+"/repos/"+channelLabel+"/repodata", 0770); err != nil {
+		if err := os.MkdirAll(options.GetOutputFolderAbsPath()+"/repos/"+channelLabel, 0770); err != nil {
 			log.Panic().Err(err).Msg("error creating channel repo directory")
 		}
 		processChannelNG(db, writer, channelLabel, schemaMetadata, options)
@@ -76,14 +78,35 @@ func processChannelNG(db *sql.DB, writer *bufio.Writer, channelLabel string,
 	log.Debug().Msg("finished print table order")
 	generateChannelChildLink(db, channelLabel, writer)
 
-	log.Debug().Msg("dumping all package files")
+	archType, err := utils.LookupChannelArchType(db, channelLabel)
+	if err != nil {
+		log.Panic().Err(err).Str("channel", channelLabel).Msg("could not read channel arch type")
+	}
+	isDeb := utils.IsDebArchType(archType)
+	metadataTarget, packageFilesOutput := channelRepositoryLayoutNG(options.GetOutputFolderAbsPath(), channelLabel, isDeb)
+
+	log.Debug().Str("archType", archType).Msg("dumping channel metadata and package files")
 	serverCacheFolder := options.StoragePaths.ChannelRepositoryMetadataPath(channelLabel)
-	target := fmt.Sprintf("%s/repos/%s/repodata", options.GetOutputFolderAbsPath(), channelLabel)
-	if err := syncChannelMetadata(serverCacheFolder, target); err != nil {
-		log.Panic().Err(err).Str("source", serverCacheFolder).Str("destination", target).
+	if err := os.MkdirAll(metadataTarget, 0770); err != nil {
+		log.Panic().Err(err).Str("destination", metadataTarget).Msg("error creating channel metadata directory")
+	}
+	// The deb metadata shares the repository root with the packages, so never delete there.
+	if err := syncChannelMetadata(serverCacheFolder, metadataTarget, !isDeb); err != nil {
+		log.Panic().Err(err).Str("source", serverCacheFolder).Str("destination", metadataTarget).
 			Msgf("could not sync channel metadata with rsync: %v", err)
 	}
-	packageFilesOutput := fmt.Sprintf("%s/repos/%s/getPackage", options.GetOutputFolderAbsPath(), channelLabel)
-	packageDumper.DumpPackageFilesNG(db, schemaMetadata, tableData, packageFilesOutput, options.StoragePaths.PackageRoot())
+	packageDumper.DumpPackageFilesNG(db, schemaMetadata, tableData, packageFilesOutput, options.StoragePaths.PackageRoot(), isDeb)
 	log.Debug().Msg("channel export finished")
+}
+
+// channelRepositoryLayoutNG returns the metadata and package folders of an exported channel.
+// yum: repos/<label>/repodata and repos/<label>/getPackage.
+// deb: metadata at repos/<label>; packages at repos/<label>/<label>/getPackage, as
+// referenced by the "Filename: <label>/getPackage/<file>" entries of the Packages file.
+func channelRepositoryLayoutNG(outputFolder, channelLabel string, isDeb bool) (string, string) {
+	repository := filepath.Join(outputFolder, "repos", channelLabel)
+	if isDeb {
+		return repository, filepath.Join(repository, channelLabel, "getPackage")
+	}
+	return filepath.Join(repository, "repodata"), filepath.Join(repository, "getPackage")
 }

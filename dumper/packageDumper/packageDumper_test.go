@@ -24,12 +24,8 @@ func TestPackageDumpLayouts(t *testing.T) {
 	if err := os.WriteFile(source, []byte("package data"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	for _, ng := range []bool{false, true} {
-		name := "legacy"
-		if ng {
-			name = "ng"
-		}
-		t.Run(name, func(t *testing.T) {
+	for _, layout := range []string{"legacy", "ng", "ng-deb"} {
+		t.Run(layout, func(t *testing.T) {
 			db, mock, err := sqlmock.New()
 			if err != nil {
 				t.Fatal(err)
@@ -45,11 +41,16 @@ func TestPackageDumpLayouts(t *testing.T) {
 			}}}
 			output := t.TempDir()
 			target := filepath.Join(output, storedPath)
-			if ng {
+			switch layout {
+			case "ng":
 				output = filepath.Join(output, "repos", "channel", "getPackage")
 				target = filepath.Join(output, "NULL", "hash", "package.rpm")
-				DumpPackageFilesNG(db, schema, data, output, sourceRoot)
-			} else {
+				DumpPackageFilesNG(db, schema, data, output, sourceRoot, false)
+			case "ng-deb":
+				output = filepath.Join(output, "repos", "channel", "channel", "getPackage")
+				target = filepath.Join(output, "package.rpm")
+				DumpPackageFilesNG(db, schema, data, output, sourceRoot, true)
+			default:
 				DumpPackageFiles(db, schema, data, output, sourceRoot)
 			}
 			contents, err := os.ReadFile(target)
@@ -111,6 +112,22 @@ func TestPackageFilePaths(t *testing.T) {
 	}
 }
 
+func TestFlatPackageFilePaths(t *testing.T) {
+	const storedPath = "packages/42/e8c/name/1.0-1/amd64/hash/name_1.0-1_amd64.deb"
+	sourceRoot := filepath.Join(t.TempDir(), "server-data")
+	destinationRoot := filepath.Join(t.TempDir(), "repos", "channel", "channel", "getPackage")
+	source, destination, err := flatPackageFilePaths(sourceRoot, destinationRoot, storedPath)
+	if err != nil {
+		t.Fatalf("flatPackageFilePaths() error = %v", err)
+	}
+	if want := filepath.Join(sourceRoot, filepath.FromSlash(storedPath)); source != want {
+		t.Errorf("source = %q, want %q", source, want)
+	}
+	if want := filepath.Join(destinationRoot, "name_1.0-1_amd64.deb"); destination != want {
+		t.Errorf("destination = %q, want %q", destination, want)
+	}
+}
+
 func TestPackageFilePathsRejectInvalidPaths(t *testing.T) {
 	invalidPaths := []string{
 		"",
@@ -126,6 +143,9 @@ func TestPackageFilePathsRejectInvalidPaths(t *testing.T) {
 			if _, _, err := packageFilePaths("/var/spacewalk", "/export/getPackage", storedPath, nil); err == nil {
 				t.Errorf("packageFilePaths(%q) error = nil, want an error", storedPath)
 			}
+			if _, _, err := flatPackageFilePaths("/var/spacewalk", "/export/getPackage", storedPath); err == nil {
+				t.Errorf("flatPackageFilePaths(%q) error = nil, want an error", storedPath)
+			}
 		})
 	}
 }
@@ -140,12 +160,8 @@ func TestPackageFilePathsRejectInvalidOrganizationID(t *testing.T) {
 
 func TestPackageDumpPanicsOnMissingFile(t *testing.T) {
 	const storedPath = "packages/NULL/hash/missing.rpm"
-	for _, ng := range []bool{false, true} {
-		name := "legacy"
-		if ng {
-			name = "ng"
-		}
-		t.Run(name, func(t *testing.T) {
+	for _, layout := range []string{"legacy", "ng", "ng-deb"} {
+		t.Run(layout, func(t *testing.T) {
 			db, mock, err := sqlmock.New()
 			if err != nil {
 				t.Fatal(err)
@@ -164,9 +180,12 @@ func TestPackageDumpPanicsOnMissingFile(t *testing.T) {
 					t.Fatal("expected panic when package file cannot be copied")
 				}
 			}()
-			if ng {
-				DumpPackageFilesNG(db, schema, data, t.TempDir(), t.TempDir())
-			} else {
+			switch layout {
+			case "ng":
+				DumpPackageFilesNG(db, schema, data, t.TempDir(), t.TempDir(), false)
+			case "ng-deb":
+				DumpPackageFilesNG(db, schema, data, t.TempDir(), t.TempDir(), true)
+			default:
 				DumpPackageFiles(db, schema, data, t.TempDir(), t.TempDir())
 			}
 		})

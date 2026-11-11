@@ -6,7 +6,6 @@ package cmd
 
 import (
 	"bufio"
-	"database/sql"
 	"fmt"
 	"io"
 	"net/url"
@@ -109,43 +108,28 @@ func runImport(cmd *cobra.Command, args []string) {
 	log.Info().Msg("import finished")
 }
 
-const channelArchTypeSql = `SELECT at.label
-FROM rhnchannel c
-JOIN rhnchannelarch ca ON ca.id = c.channel_arch_id
-JOIN rhnarchtype at ON at.id = ca.arch_type_id
-WHERE c.label = $1`
-
-// debMetadataFiles mark a Debian repository in the exported repodata folder.
+// debMetadataFiles mark a Debian repository; they live at the repository root.
 var debMetadataFiles = []string{"Release", "InRelease", "Packages", "Packages.gz", "Packages.xz"}
 
 func syncExportedChannelRepos(importDirectory, serverConfig string) error {
 	db := schemareader.GetDBconnection(serverConfig)
 	defer db.Close()
 	archType := func(label string) (string, error) {
-		return lookupChannelArchType(db, label)
+		return utils.LookupChannelArchType(db, label)
 	}
 	return syncExportedChannelReposWithRunner(importDirectory, archType, func(command string, args ...string) ([]byte, error) {
 		return exec.Command(command, args...).CombinedOutput()
 	})
 }
 
-// lookupChannelArchType returns the arch type label (rpm or deb) of a channel in the local database.
-func lookupChannelArchType(db *sql.DB, label string) (string, error) {
-	var archType string
-	if err := db.QueryRow(channelArchTypeSql, label).Scan(&archType); err != nil {
-		return "", err
-	}
-	return archType, nil
-}
-
 // resolveSyncType returns the spacewalk-repo-sync type for a channel. It uses
 // the channel arch type from the database, then the metadata files, then yum.
-func resolveSyncType(label, repodataPath string, archType func(string) (string, error)) string {
+func resolveSyncType(label, repositoryPath string, archType func(string) (string, error)) string {
 	dbType, err := archType(label)
 	if err != nil {
 		log.Warn().Err(err).Str("channel", label).Msg("could not read channel arch type from database; detecting repository type from metadata files")
 	} else {
-		switch strings.ToLower(strings.TrimSpace(dbType)) {
+		switch utils.NormalizeArchType(dbType) {
 		case "deb":
 			log.Debug().Str("channel", label).Str("source", "database").Msg("repository type resolved to deb")
 			return "deb"
@@ -157,25 +141,56 @@ func resolveSyncType(label, repodataPath string, archType func(string) (string, 
 		}
 	}
 
-	if detected := detectRepoTypeFromFiles(repodataPath); detected != "" {
+	if detected := detectRepoTypeFromFiles(repositoryPath); detected != "" {
 		log.Debug().Str("channel", label).Str("source", "metadata files").Msgf("repository type resolved to %s", detected)
 		return detected
 	}
-	log.Warn().Str("channel", label).Str("repodata", repodataPath).Msg("could not determine repository type; defaulting to yum")
+	log.Warn().Str("channel", label).Str("repository", repositoryPath).Msg("could not determine repository type; defaulting to yum")
 	return "yum"
 }
 
 // detectRepoTypeFromFiles returns yum or deb based on the metadata files, or "" if unknown.
-func detectRepoTypeFromFiles(repodataPath string) string {
-	if isRegularFile(filepath.Join(repodataPath, "repomd.xml")) {
+// Yum metadata lives in <repository>/repodata, deb metadata in the repository root.
+func detectRepoTypeFromFiles(repositoryPath string) string {
+	if isRegularFile(filepath.Join(repositoryPath, "repodata", "repomd.xml")) {
 		return "yum"
 	}
-	for _, name := range debMetadataFiles {
-		if isRegularFile(filepath.Join(repodataPath, name)) {
-			return "deb"
-		}
+	if hasDebMetadata(repositoryPath) {
+		return "deb"
 	}
 	return ""
+}
+
+func hasDebMetadata(repositoryPath string) bool {
+	for _, name := range debMetadataFiles {
+		if isRegularFile(filepath.Join(repositoryPath, name)) {
+			return true
+		}
+	}
+	return false
+}
+
+// hasRepositoryMetadata checks that the exported metadata for the sync type is present.
+func hasRepositoryMetadata(label, repositoryPath, syncType string) bool {
+	if syncType == "deb" {
+		if !hasDebMetadata(repositoryPath) {
+			log.Warn().Str("channel", label).Str("repository", repositoryPath).Msg("deb channel repository metadata files are missing; skipping repo-sync")
+			return false
+		}
+		return true
+	}
+	repodataPath := filepath.Join(repositoryPath, "repodata")
+	// Only check that the metadata folder has content; spacewalk-repo-sync validates the contents itself.
+	entries, err := os.ReadDir(repodataPath)
+	if err != nil {
+		log.Warn().Err(err).Str("channel", label).Str("repodata", repodataPath).Msg("channel repository metadata folder is missing; skipping repo-sync")
+		return false
+	}
+	if len(entries) == 0 {
+		log.Warn().Str("channel", label).Str("repodata", repodataPath).Msg("channel repository metadata folder is empty; skipping repo-sync")
+		return false
+	}
+	return true
 }
 
 func isRegularFile(path string) bool {
@@ -208,19 +223,10 @@ func syncExportedChannelReposWithRunner(importDirectory string, archType func(st
 		}
 
 		repositoryPath := filepath.Join(importDirectory, "repos", label)
-		repodataPath := filepath.Join(repositoryPath, "repodata")
-		// Only check that the metadata folder has content: deb channels have no
-		// repomd.xml, and spacewalk-repo-sync validates the contents itself.
-		entries, readErr := os.ReadDir(repodataPath)
-		if readErr != nil {
-			log.Warn().Err(readErr).Str("channel", label).Str("repodata", repodataPath).Msg("channel repository metadata folder is missing; skipping repo-sync")
+		syncType := resolveSyncType(label, repositoryPath, archType)
+		if !hasRepositoryMetadata(label, repositoryPath, syncType) {
 			continue
 		}
-		if len(entries) == 0 {
-			log.Warn().Str("channel", label).Str("repodata", repodataPath).Msg("channel repository metadata folder is empty; skipping repo-sync")
-			continue
-		}
-		syncType := resolveSyncType(label, repodataPath, archType)
 
 		absoluteRepositoryPath, err := filepath.Abs(repositoryPath)
 		if err != nil {

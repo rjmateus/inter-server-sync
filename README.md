@@ -31,9 +31,19 @@ the original package directory layout, and import-time cache/metadata regenerati
 
 Use `inter-server-sync export-ng --serverConfig=/etc/rhn/rhn.conf --outputDir=~/export-ng --channels=channel_label,channel_label`
 to use the new repository-based implementation instead. It exports channel metadata
-and copies repository metadata and packages into `repos/<channel>/repodata` and
-`repos/<channel>/getPackage`. Package and errata SQL data and cache-regeneration SQL
-are omitted by this implementation; repositories are synchronized during import.
+and copies repository metadata and packages into a layout that depends on the channel type:
+
+| Channel type | Repository metadata | Packages |
+|---|---|---|
+| yum (rpm) | `repos/<channel>/repodata/` | `repos/<channel>/getPackage/<org>/<checksum>/<file>` |
+| deb | `repos/<channel>/` (`Packages*`, `Release`, `InRelease`) | `repos/<channel>/<channel>/getPackage/<file>` |
+
+The deb package location matches the `Filename: <channel>/getPackage/<file>` entries
+of the `Packages` file. Yum metadata is synchronized with `rsync --delete`; deb
+metadata is not, because its folder also holds the packages.
+Package and errata SQL data and cache-regeneration SQL are omitted by this
+implementation; repositories are synchronized during import, which expects the
+same layout.
 
 The commands have independent flags and option values. Common flags retain their
 existing names and defaults. `--metadataOnly`, `--noChangelogs` and

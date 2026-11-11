@@ -14,16 +14,23 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-func syncChannelMetadata(source, target string) error {
-	return syncChannelMetadataWithRunner(source, target, func(command string, args ...string) ([]byte, error) {
+// syncChannelMetadata copies the channel metadata cache into target. deleteOption
+// removes target files missing from the source; only use it when target holds
+// nothing but metadata (yum repodata), never on a folder that also holds packages (deb).
+func syncChannelMetadata(source, target string, deleteOption bool) error {
+	return syncChannelMetadataWithRunner(source, target, deleteOption, func(command string, args ...string) ([]byte, error) {
 		return exec.Command(command, args...).CombinedOutput()
 	})
 }
 
-func syncChannelMetadataWithRunner(source, target string, run func(string, ...string) ([]byte, error)) error {
+func syncChannelMetadataWithRunner(source, target string, deleteOption bool, run func(string, ...string) ([]byte, error)) error {
 	source = filepath.Clean(source) + string(os.PathSeparator)
 	target = filepath.Clean(target) + string(os.PathSeparator)
-	args := []string{"-rt", "--delete", source, target}
+	args := []string{"-rt"}
+	if deleteOption {
+		args = append(args, "--delete")
+	}
+	args = append(args, source, target)
 	log.Debug().Str("source", source).Str("destination", target).Str("command", "rsync").Strs("arguments", args).Msg("running channel metadata sync")
 
 	output, err := run("rsync", args...)

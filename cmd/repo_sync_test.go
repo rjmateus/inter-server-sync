@@ -13,8 +13,6 @@ import (
 	"reflect"
 	"strings"
 	"testing"
-
-	"github.com/DATA-DOG/go-sqlmock"
 )
 
 func archTypeStub(archType string, err error) func(string) (string, error) {
@@ -33,6 +31,21 @@ func writeRepodataFile(t *testing.T, importDir, label, name string) string {
 		}
 	}
 	return repodata
+}
+
+// writeDebMetadataFile writes a deb metadata file at the repository root.
+func writeDebMetadataFile(t *testing.T, importDir, label, name string) string {
+	t.Helper()
+	repository := filepath.Join(importDir, "repos", label)
+	if err := os.MkdirAll(repository, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if name != "" {
+		if err := os.WriteFile(filepath.Join(repository, name), []byte("metadata"), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return repository
 }
 
 func writeChannelList(t *testing.T, importDir, content string) {
@@ -79,18 +92,43 @@ func TestSyncExportedChannelReposWithRunner(t *testing.T) {
 
 func TestSyncExportedChannelReposDebChannelWithoutRepomd(t *testing.T) {
 	importDir := t.TempDir()
+	writeDebMetadataFile(t, importDir, "deb-channel", "Release")
+	writeChannelList(t, importDir, "deb-channel\n")
+
+	for name, archType := range map[string]func(string) (string, error){
+		"type from database":       archTypeStub("deb", nil),
+		"type from metadata files": archTypeStub("", sql.ErrNoRows),
+	} {
+		t.Run(name, func(t *testing.T) {
+			var calls [][]string
+			if err := syncExportedChannelReposWithRunner(importDir, archType, func(_ string, args ...string) ([]byte, error) {
+				calls = append(calls, append([]string(nil), args...))
+				return nil, nil
+			}); err != nil {
+				t.Fatalf("syncExportedChannelReposWithRunner() error = %v", err)
+			}
+			if len(calls) != 1 || calls[0][1] != "deb-channel" || calls[0][2] != "--type=deb" {
+				t.Fatalf("calls = %#v, want one call for deb-channel with --type=deb", calls)
+			}
+		})
+	}
+}
+
+func TestSyncExportedChannelReposSkipsDebWithoutTopLevelMetadata(t *testing.T) {
+	importDir := t.TempDir()
+	// Metadata inside repodata is the yum layout; a deb channel needs it at the root.
 	writeRepodataFile(t, importDir, "deb-channel", "Release")
 	writeChannelList(t, importDir, "deb-channel\n")
 
-	var calls [][]string
-	if err := syncExportedChannelReposWithRunner(importDir, archTypeStub("", sql.ErrNoRows), func(_ string, args ...string) ([]byte, error) {
-		calls = append(calls, append([]string(nil), args...))
+	calls := 0
+	if err := syncExportedChannelReposWithRunner(importDir, archTypeStub("deb", nil), func(string, ...string) ([]byte, error) {
+		calls++
 		return nil, nil
 	}); err != nil {
 		t.Fatalf("syncExportedChannelReposWithRunner() error = %v", err)
 	}
-	if len(calls) != 1 || calls[0][1] != "deb-channel" || calls[0][2] != "--type=deb" {
-		t.Fatalf("calls = %#v, want one call for deb-channel with --type=deb", calls)
+	if calls != 0 {
+		t.Errorf("runner called %d times, want 0", calls)
 	}
 }
 
@@ -112,8 +150,14 @@ func TestResolveSyncType(t *testing.T) {
 		{"unknown value without markers falls back", "foo", nil, "other.txt", "yum"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			repodata := writeRepodataFile(t, t.TempDir(), "channel", tt.file)
-			if got := resolveSyncType("channel", repodata, archTypeStub(tt.archType, tt.err)); got != tt.want {
+			importDir := t.TempDir()
+			repository := filepath.Join(importDir, "repos", "channel")
+			if tt.file == "repomd.xml" {
+				writeRepodataFile(t, importDir, "channel", tt.file)
+			} else {
+				writeDebMetadataFile(t, importDir, "channel", tt.file)
+			}
+			if got := resolveSyncType("channel", repository, archTypeStub(tt.archType, tt.err)); got != tt.want {
 				t.Errorf("resolveSyncType() = %q, want %q", got, tt.want)
 			}
 		})
@@ -194,42 +238,5 @@ func TestSyncExportedChannelReposContinuesAfterFailures(t *testing.T) {
 		if !strings.Contains(err.Error(), expected) {
 			t.Errorf("error %q does not contain %q", err, expected)
 		}
-	}
-}
-
-func TestLookupChannelArchType(t *testing.T) {
-	queryErr := errors.New("query failed")
-	for _, tt := range []struct {
-		name    string
-		expect  func(*sqlmock.ExpectedQuery)
-		want    string
-		wantErr error
-	}{
-		{"row returned", func(q *sqlmock.ExpectedQuery) {
-			q.WillReturnRows(sqlmock.NewRows([]string{"label"}).AddRow("deb"))
-		}, "deb", nil},
-		{"no rows", func(q *sqlmock.ExpectedQuery) {
-			q.WillReturnRows(sqlmock.NewRows([]string{"label"}))
-		}, "", sql.ErrNoRows},
-		{"query error", func(q *sqlmock.ExpectedQuery) {
-			q.WillReturnError(queryErr)
-		}, "", queryErr},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			db, mock, err := sqlmock.New()
-			if err != nil {
-				t.Fatal(err)
-			}
-			defer db.Close()
-			tt.expect(mock.ExpectQuery("SELECT at.label FROM rhnchannel").WithArgs("my-channel"))
-
-			got, err := lookupChannelArchType(db, "my-channel")
-			if got != tt.want || !errors.Is(err, tt.wantErr) {
-				t.Errorf("lookupChannelArchType() = (%q, %v), want (%q, %v)", got, err, tt.want, tt.wantErr)
-			}
-			if err := mock.ExpectationsWereMet(); err != nil {
-				t.Fatal(err)
-			}
-		})
 	}
 }

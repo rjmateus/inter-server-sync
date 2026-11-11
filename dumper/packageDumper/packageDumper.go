@@ -26,9 +26,16 @@ func DumpPackageFiles(db *sql.DB, schemaMetadata map[string]schemareader.Table, 
 }
 
 // DumpPackageFilesNG copies packages into the repository getPackage layout.
-func DumpPackageFilesNG(db *sql.DB, schemaMetadata map[string]schemareader.Table, data dumper.DataDumper, outputFolder, serverDataFolder string) {
+// flat copies the files directly into outputFolder, as deb repositories expect;
+// otherwise they go under <org>/<checksum>/, as yum repositories expect.
+func DumpPackageFilesNG(db *sql.DB, schemaMetadata map[string]schemareader.Table, data dumper.DataDumper, outputFolder, serverDataFolder string, flat bool) {
 	dumpPackageFiles(db, schemaMetadata, data, func(row []sqlUtil.RowDataStructure, table schemareader.Table) (string, string, error) {
-		return packageFilePaths(serverDataFolder, outputFolder, fmt.Sprint(row[table.ColumnIndexes["path"]].Value), row[table.ColumnIndexes["org_id"]].Value)
+		storedPath := fmt.Sprint(row[table.ColumnIndexes["path"]].Value)
+		if flat {
+			//FIXME Confirm also the file name, which I think is differente from whatr is saved on the file system of the server.
+			return flatPackageFilePaths(serverDataFolder, outputFolder, storedPath)
+		}
+		return packageFilePaths(serverDataFolder, outputFolder, storedPath, row[table.ColumnIndexes["org_id"]].Value)
 	})
 }
 
@@ -85,22 +92,24 @@ func dumpPackageFiles(db *sql.DB, schemaMetadata map[string]schemareader.Table, 
 	}
 }
 
-func packageFilePaths(serverDataFolder, destinationRoot, storedPath string, orgID interface{}) (string, string, error) {
+// packageSourcePath validates the stored package path and returns the source file
+// below serverDataFolder together with the path components.
+func packageSourcePath(serverDataFolder, storedPath string) (string, []string, error) {
 	if storedPath == "" || strings.Contains(storedPath, `\`) {
-		return "", "", fmt.Errorf("invalid package path %q", storedPath)
+		return "", nil, fmt.Errorf("invalid package path %q", storedPath)
 	}
 
 	relativePath := filepath.FromSlash(storedPath)
 	if filepath.IsAbs(relativePath) {
-		return "", "", fmt.Errorf("package path must be relative: %q", storedPath)
+		return "", nil, fmt.Errorf("package path must be relative: %q", storedPath)
 	}
 	components := strings.Split(relativePath, string(filepath.Separator))
 	if len(components) < 2 {
-		return "", "", fmt.Errorf("package path must contain at least two components: %q", storedPath)
+		return "", nil, fmt.Errorf("package path must contain at least two components: %q", storedPath)
 	}
 	for _, component := range components {
 		if component == ".." || component == "." || component == "" {
-			return "", "", fmt.Errorf("invalid package path component in %q", storedPath)
+			return "", nil, fmt.Errorf("invalid package path component in %q", storedPath)
 		}
 	}
 
@@ -109,7 +118,25 @@ func packageFilePaths(serverDataFolder, destinationRoot, storedPath string, orgI
 	source := filepath.Join(serverDataFolder, cleanPath)
 	relativeSource, err := filepath.Rel(serverDataFolder, source)
 	if err != nil || relativeSource == ".." || strings.HasPrefix(relativeSource, ".."+string(filepath.Separator)) {
-		return "", "", fmt.Errorf("package path escapes source directory: %q", storedPath)
+		return "", nil, fmt.Errorf("package path escapes source directory: %q", storedPath)
+	}
+	return source, components, nil
+}
+
+// flatPackageFilePaths places the package file directly in destinationRoot.
+func flatPackageFilePaths(serverDataFolder, destinationRoot, storedPath string) (string, string, error) {
+	source, components, err := packageSourcePath(serverDataFolder, storedPath)
+	if err != nil {
+		return "", "", err
+	}
+	return source, filepath.Join(destinationRoot, components[len(components)-1]), nil
+}
+
+// packageFilePaths places the package file in destinationRoot/<org>/<checksum>/.
+func packageFilePaths(serverDataFolder, destinationRoot, storedPath string, orgID interface{}) (string, string, error) {
+	source, components, err := packageSourcePath(serverDataFolder, storedPath)
+	if err != nil {
+		return "", "", err
 	}
 
 	orgDirectory := "NULL"

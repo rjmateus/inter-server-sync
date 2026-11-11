@@ -46,10 +46,12 @@ func TestChannelCacheSQLIsLegacyOnly(t *testing.T) {
 		process   func(*sql.DB, *bufio.Writer, string, map[string]schemareader.Table, DumperOptions)
 		wantCache bool
 		cacheRoot string
+		archType  string
 	}{
-		{"legacy", processChannel, true, ""},
-		{"ng", processChannelNG, false, ""},
-		{"ng custom cache", processChannelNG, false, "/custom cache/"},
+		{"legacy", processChannel, true, "", ""},
+		{"ng", processChannelNG, false, "", "rpm"},
+		{"ng custom cache", processChannelNG, false, "/custom cache/", "rpm"},
+		{"ng deb", processChannelNG, false, "", "deb"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			var rsyncLog string
@@ -71,10 +73,14 @@ func TestChannelCacheSQLIsLegacyOnly(t *testing.T) {
 			defer db.Close()
 			mock.ExpectQuery("SELECT \\* FROM rhnchannel WHERE label = 'test-channel'").WillReturnRows(sqlmock.NewRows([]string{"id"}))
 			mock.ExpectQuery("select label from rhnchannel").WithArgs(driver.Value("test-channel")).WillReturnRows(sqlmock.NewRows([]string{"label"}))
+			if tt.archType != "" {
+				mock.ExpectQuery("SELECT at.label FROM rhnchannel").WithArgs(driver.Value("test-channel")).WillReturnRows(sqlmock.NewRows([]string{"label"}).AddRow(tt.archType))
+			}
+			outputFolder := t.TempDir()
 			var output bytes.Buffer
 			writer := bufio.NewWriter(&output)
 			schema := map[string]schemareader.Table{"rhnchannel": {Name: "rhnchannel", Export: true, Columns: []string{"id"}}}
-			tt.process(db, writer, "test-channel", schema, DumperOptions{MetadataOnly: true, StoragePaths: utils.StoragePaths{RepomdCacheMountPoint: tt.cacheRoot}})
+			tt.process(db, writer, "test-channel", schema, DumperOptions{OutputFolder: outputFolder, MetadataOnly: true, StoragePaths: utils.StoragePaths{RepomdCacheMountPoint: tt.cacheRoot}})
 			writer.Flush()
 			if rsyncLog != "" {
 				args, err := os.ReadFile(rsyncLog)
@@ -85,6 +91,19 @@ func TestChannelCacheSQLIsLegacyOnly(t *testing.T) {
 				wantSource := filepath.Join(root, "rhn/repodata", "test-channel") + "/"
 				if err != nil || !strings.Contains(string(args), "\n"+wantSource+"\n") {
 					t.Errorf("rsync args=%q, error=%v, want source %q", args, err, wantSource)
+				}
+				// yum metadata goes to repodata with --delete; deb metadata to the
+				// repository root, which also holds the packages, so without --delete.
+				isDeb := tt.archType == "deb"
+				wantTarget := filepath.Join(outputFolder, "repos", "test-channel", "repodata") + "/"
+				if isDeb {
+					wantTarget = filepath.Join(outputFolder, "repos", "test-channel") + "/"
+				}
+				if !strings.HasSuffix(string(args), "\n"+wantTarget+"\n") {
+					t.Errorf("rsync args=%q, want target %q", args, wantTarget)
+				}
+				if strings.Contains(string(args), "--delete") == isDeb {
+					t.Errorf("rsync args=%q, --delete presence incorrect for arch type %q", args, tt.archType)
 				}
 			}
 			for _, sql := range []string{"set modified = current_timestamp", "rhn_channel.update_needed_cache", "rhn_channel.refresh_newest_package", "INSERT INTO rhnRepoRegenQueue"} {

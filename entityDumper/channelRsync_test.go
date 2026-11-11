@@ -13,31 +13,42 @@ import (
 
 func TestSyncChannelMetadataWithRunner(t *testing.T) {
 	const source = "/var/rhn/cache/test-channel"
-	const target = "/tmp/export/repos/test-channel/repodata"
-
-	called := false
-	err := syncChannelMetadataWithRunner(source, target, func(command string, args ...string) ([]byte, error) {
-		called = true
-		if command != "rsync" {
-			t.Errorf("command = %q, want %q", command, "rsync")
-		}
-		wantArgs := []string{"-rt", "--delete", source + "/", target + "/"}
-		if !reflect.DeepEqual(args, wantArgs) {
-			t.Errorf("args = %#v, want %#v", args, wantArgs)
-		}
-		return nil, nil
-	})
-	if err != nil {
-		t.Fatalf("syncChannelMetadataWithRunner() error = %v", err)
-	}
-	if !called {
-		t.Fatal("rsync runner was not called")
+	for _, tt := range []struct {
+		name             string
+		target           string
+		deleteData bool
+		wantArgs         []string
+	}{
+		{"yum repodata", "/tmp/export/repos/test-channel/repodata", true,
+			[]string{"-rt", "--delete", source + "/", "/tmp/export/repos/test-channel/repodata/"}},
+		{"deb repository root", "/tmp/export/repos/test-channel", false,
+			[]string{"-rt", source + "/", "/tmp/export/repos/test-channel/"}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			called := false
+			err := syncChannelMetadataWithRunner(source, tt.target, tt.deleteData, func(command string, args ...string) ([]byte, error) {
+				called = true
+				if command != "rsync" {
+					t.Errorf("command = %q, want %q", command, "rsync")
+				}
+				if !reflect.DeepEqual(args, tt.wantArgs) {
+					t.Errorf("args = %#v, want %#v", args, tt.wantArgs)
+				}
+				return nil, nil
+			})
+			if err != nil {
+				t.Fatalf("syncChannelMetadataWithRunner() error = %v", err)
+			}
+			if !called {
+				t.Fatal("rsync runner was not called")
+			}
+		})
 	}
 }
 
 func TestSyncChannelMetadataWithRunnerReturnsCommandError(t *testing.T) {
 	commandErr := errors.New("exit status 23")
-	err := syncChannelMetadataWithRunner("/source", "/target", func(command string, args ...string) ([]byte, error) {
+	err := syncChannelMetadataWithRunner("/source", "/target", true, func(command string, args ...string) ([]byte, error) {
 		return []byte("permission denied"), commandErr
 	})
 	if err == nil {
