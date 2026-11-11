@@ -39,7 +39,9 @@ and copies repository metadata and packages into a layout that depends on the ch
 | deb | `repos/<channel>/` (`Packages*`, `Release`, `InRelease`) | `repos/<channel>/<channel>/getPackage/<file>` |
 
 The deb package location matches the `Filename: <channel>/getPackage/<file>` entries
-of the `Packages` file. Yum metadata is synchronized with `rsync --delete`; deb
+of the `Packages` file. Deb package files are renamed from the stored
+`<name>-<version>-<release>.<arch>.deb` to the `<name>_<version>-<release>.<arch>.deb`
+form used in `Packages`, using the package name from the database. Yum metadata is synchronized with `rsync --delete`; deb
 metadata is not, because its folder also holds the packages.
 Package and errata SQL data and cache-regeneration SQL are omitted by this
 implementation; repositories are synchronized during import, which expects the
