@@ -87,6 +87,14 @@ NG repository import continues to use `spacewalk-repo-sync`, which manages its
 own package and metadata storage configuration. The selected `--serverConfig`
 is not forwarded to that external command. Image storage paths are unchanged.
 
+The `--type` passed to `spacewalk-repo-sync` is resolved per channel, after the
+SQL import: first from the channel arch type in the destination database
+(`deb` → `deb`, `rpm` → `yum`, so ULN channels sync as yum from the local
+copy), then from the exported metadata files (`repomd.xml` → `yum`;
+`Release`, `InRelease` or `Packages*` → `deb`), and finally defaults to `yum`
+with a warning. Channels whose `repos/<channel>/repodata/` folder is missing or
+empty are skipped with a warning.
+
 ## Database connection configuration
 
 Database connection configuration are loaded by default from `/etc/rhn/rhn.conf`.

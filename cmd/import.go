@@ -6,6 +6,7 @@ package cmd
 
 import (
 	"bufio"
+	"database/sql"
 	"fmt"
 	"io"
 	"net/url"
@@ -19,6 +20,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/uyuni-project/inter-server-sync/cobbler"
 	"github.com/uyuni-project/inter-server-sync/dumper/pillarDumper"
+	"github.com/uyuni-project/inter-server-sync/schemareader"
 	"github.com/uyuni-project/inter-server-sync/utils"
 	"github.com/uyuni-project/inter-server-sync/xmlrpc"
 )
@@ -101,19 +103,87 @@ func runImport(cmd *cobra.Command, args []string) {
 	runImageFileSync(absImportDir, serverConfig)
 
 	runImportSql(absImportDir, serverConfig)
-	if err := syncExportedChannelRepos(absImportDir); err != nil {
+	if err := syncExportedChannelRepos(absImportDir, serverConfig); err != nil {
 		log.Fatal().Err(err).Msg("one or more channel repository syncs failed")
 	}
 	log.Info().Msg("import finished")
 }
 
-func syncExportedChannelRepos(importDirectory string) error {
-	return syncExportedChannelReposWithRunner(importDirectory, func(command string, args ...string) ([]byte, error) {
+const channelArchTypeSql = `SELECT at.label
+FROM rhnchannel c
+JOIN rhnchannelarch ca ON ca.id = c.channel_arch_id
+JOIN rhnarchtype at ON at.id = ca.arch_type_id
+WHERE c.label = $1`
+
+// debMetadataFiles mark a Debian repository in the exported repodata folder.
+var debMetadataFiles = []string{"Release", "InRelease", "Packages", "Packages.gz", "Packages.xz"}
+
+func syncExportedChannelRepos(importDirectory, serverConfig string) error {
+	db := schemareader.GetDBconnection(serverConfig)
+	defer db.Close()
+	archType := func(label string) (string, error) {
+		return lookupChannelArchType(db, label)
+	}
+	return syncExportedChannelReposWithRunner(importDirectory, archType, func(command string, args ...string) ([]byte, error) {
 		return exec.Command(command, args...).CombinedOutput()
 	})
 }
 
-func syncExportedChannelReposWithRunner(importDirectory string, run func(string, ...string) ([]byte, error)) error {
+// lookupChannelArchType returns the arch type label (rpm or deb) of a channel in the local database.
+func lookupChannelArchType(db *sql.DB, label string) (string, error) {
+	var archType string
+	if err := db.QueryRow(channelArchTypeSql, label).Scan(&archType); err != nil {
+		return "", err
+	}
+	return archType, nil
+}
+
+// resolveSyncType returns the spacewalk-repo-sync type for a channel. It uses
+// the channel arch type from the database, then the metadata files, then yum.
+func resolveSyncType(label, repodataPath string, archType func(string) (string, error)) string {
+	dbType, err := archType(label)
+	if err != nil {
+		log.Warn().Err(err).Str("channel", label).Msg("could not read channel arch type from database; detecting repository type from metadata files")
+	} else {
+		switch strings.ToLower(strings.TrimSpace(dbType)) {
+		case "deb":
+			log.Debug().Str("channel", label).Str("source", "database").Msg("repository type resolved to deb")
+			return "deb"
+		case "rpm":
+			log.Debug().Str("channel", label).Str("source", "database").Msg("repository type resolved to yum")
+			return "yum"
+		default:
+			log.Warn().Str("channel", label).Str("archType", dbType).Msg("unknown channel arch type in database; detecting repository type from metadata files")
+		}
+	}
+
+	if detected := detectRepoTypeFromFiles(repodataPath); detected != "" {
+		log.Debug().Str("channel", label).Str("source", "metadata files").Msgf("repository type resolved to %s", detected)
+		return detected
+	}
+	log.Warn().Str("channel", label).Str("repodata", repodataPath).Msg("could not determine repository type; defaulting to yum")
+	return "yum"
+}
+
+// detectRepoTypeFromFiles returns yum or deb based on the metadata files, or "" if unknown.
+func detectRepoTypeFromFiles(repodataPath string) string {
+	if isRegularFile(filepath.Join(repodataPath, "repomd.xml")) {
+		return "yum"
+	}
+	for _, name := range debMetadataFiles {
+		if isRegularFile(filepath.Join(repodataPath, name)) {
+			return "deb"
+		}
+	}
+	return ""
+}
+
+func isRegularFile(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.Mode().IsRegular()
+}
+
+func syncExportedChannelReposWithRunner(importDirectory string, archType func(string) (string, error), run func(string, ...string) ([]byte, error)) error {
 	channelsFile := filepath.Join(importDirectory, "exportedChannels.txt")
 	file, err := os.Open(channelsFile)
 	if err != nil {
@@ -138,12 +208,19 @@ func syncExportedChannelReposWithRunner(importDirectory string, run func(string,
 		}
 
 		repositoryPath := filepath.Join(importDirectory, "repos", label)
-		repomdPath := filepath.Join(repositoryPath, "repodata", "repomd.xml")
-		info, statErr := os.Stat(repomdPath)
-		if statErr != nil || !info.Mode().IsRegular() {
-			log.Warn().Str("channel", label).Str("repository", repositoryPath).Msg("channel repository metadata is missing or incomplete; skipping repo-sync")
+		repodataPath := filepath.Join(repositoryPath, "repodata")
+		// Only check that the metadata folder has content: deb channels have no
+		// repomd.xml, and spacewalk-repo-sync validates the contents itself.
+		entries, readErr := os.ReadDir(repodataPath)
+		if readErr != nil {
+			log.Warn().Err(readErr).Str("channel", label).Str("repodata", repodataPath).Msg("channel repository metadata folder is missing; skipping repo-sync")
 			continue
 		}
+		if len(entries) == 0 {
+			log.Warn().Str("channel", label).Str("repodata", repodataPath).Msg("channel repository metadata folder is empty; skipping repo-sync")
+			continue
+		}
+		syncType := resolveSyncType(label, repodataPath, archType)
 
 		absoluteRepositoryPath, err := filepath.Abs(repositoryPath)
 		if err != nil {
@@ -151,7 +228,7 @@ func syncExportedChannelReposWithRunner(importDirectory string, run func(string,
 			continue
 		}
 		repositoryURL := (&url.URL{Scheme: "file", Path: filepath.ToSlash(absoluteRepositoryPath)}).String()
-		args := []string{"-c", label, "--url=" + repositoryURL}
+		args := []string{"-c", label, "--type=" + syncType, "--url=" + repositoryURL}
 		log.Debug().Str("channel", label).Str("command", "spacewalk-repo-sync").Strs("arguments", args).Msg("running local channel repository sync")
 		output, runErr := run("spacewalk-repo-sync", args...)
 		if runErr != nil {
