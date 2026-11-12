@@ -124,8 +124,14 @@ func processChannelErrataNG(db *sql.DB, writer *bufio.Writer, channelLabel strin
 		SkipRepopulate: options.StartingDate == "",
 	}
 	dumper.PrintTableDataOrdered(db, writer, schemaMetadata, schemaMetadata["rhnchannel"], tableData, printOptions)
-	//FIXME I don't want to run all of this, I just want to run one of the steps,
-	// force system updates packages/patches for system using the channel
-	generateCacheCalculation(channelLabel, writer)
+	generateNeededCacheUpdateNG(channelLabel, writer)
 	log.Debug().Str("channel", channelLabel).Msg("channel errata export finished")
+}
+
+// generateNeededCacheUpdateNG recalculates which systems need which patches/packages
+// now that the channel errata are linked. The other steps of generateCacheCalculation
+// (newest packages, repository metadata regeneration) do not depend on errata and are
+// already covered by the repository sync that runs before the errata import.
+func generateNeededCacheUpdateNG(channelLabel string, writer *bufio.Writer) {
+	writer.WriteString(fmt.Sprintf("select rhn_channel.update_needed_cache((select id from rhnchannel where label ='%s'));\n", channelLabel))
 }

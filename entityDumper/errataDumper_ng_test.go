@@ -5,6 +5,8 @@
 package entityDumper
 
 import (
+	"bufio"
+	"bytes"
 	"errors"
 	"reflect"
 	"strings"
@@ -60,5 +62,23 @@ func TestErrataOnlyIfParentExistsTablesNG(t *testing.T) {
 	}
 	if !reflect.DeepEqual(onlyIfParentExistsTables, before) {
 		t.Errorf("shared onlyIfParentExistsTables was modified: %v", onlyIfParentExistsTables)
+	}
+}
+
+func TestGenerateNeededCacheUpdateNG(t *testing.T) {
+	var out bytes.Buffer
+	writer := bufio.NewWriter(&out)
+	generateNeededCacheUpdateNG("ubuntu-channel", writer)
+	writer.Flush()
+
+	sql := out.String()
+	want := "select rhn_channel.update_needed_cache((select id from rhnchannel where label ='ubuntu-channel'));\n"
+	if sql != want {
+		t.Errorf("sql = %q, want %q", sql, want)
+	}
+	for _, unwanted := range []string{"refresh_newest_package", "rhnRepoRegenQueue", "set modified"} {
+		if strings.Contains(sql, unwanted) {
+			t.Errorf("sql contains %q, only the needed cache update is expected", unwanted)
+		}
 	}
 }
