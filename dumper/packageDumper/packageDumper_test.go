@@ -7,6 +7,7 @@ package packageDumper
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
@@ -33,15 +34,14 @@ func TestPackageDumpLayouts(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer db.Close()
-			columns := []string{"id", "path", "org_id", "name_id"}
-			mock.ExpectQuery("SELECT id, path, org_id, name_id FROM rhnpackage").WillReturnRows(sqlmock.NewRows(columns).AddRow(1, storedPath, nil, 7))
+			columns := []string{"id", "path", "org_id"}
+			mock.ExpectQuery("SELECT id, path, org_id FROM rhnpackage").WillReturnRows(sqlmock.NewRows(columns).AddRow(1, storedPath, nil))
 			if layout == "ng-deb" {
-				mock.ExpectQuery("SELECT id, name FROM rhnpackagename WHERE id = ANY").
-					WithArgs(pq.Array([]string{"7"})).
-					WillReturnRows(sqlmock.NewRows([]string{"id", "name"}).AddRow("7", "andromeda-dummy"))
+				expectDebPackagesQuery(mock, []string{"1"}).
+					WillReturnRows(debPackageRows().AddRow("1", "andromeda-dummy", nil, "2.0", "X", "all-deb"))
 			}
 			schema := map[string]schemareader.Table{"rhnpackage": {
-				Name: "rhnpackage", Columns: columns, ColumnIndexes: map[string]int{"id": 0, "path": 1, "org_id": 2, "name_id": 3},
+				Name: "rhnpackage", Columns: columns, ColumnIndexes: map[string]int{"id": 0, "path": 1, "org_id": 2},
 			}}
 			data := dumper.DataDumper{TableData: map[string]dumper.TableDump{"rhnpackage": {
 				TableName: "rhnpackage", Keys: []dumper.TableKey{{Key: []dumper.RowKey{{Column: "id", Value: "1"}}}},
@@ -123,63 +123,113 @@ func TestFlatPackageFilePaths(t *testing.T) {
 	const storedPath = "packages/42/e8c/andromeda-dummy/2.0-X/all-deb/hash/andromeda-dummy-2.0-X.all-deb.deb"
 	sourceRoot := filepath.Join(t.TempDir(), "server-data")
 	destinationRoot := filepath.Join(t.TempDir(), "repos", "channel", "channel", "getPackage")
-	source, destination, err := flatPackageFilePaths(sourceRoot, destinationRoot, storedPath, "andromeda-dummy")
+	source, destination, err := flatPackageFilePaths(sourceRoot, destinationRoot, storedPath,
+		debPackage{name: "andromeda-dummy", epoch: "1", version: "2.0", release: "X", arch: "all-deb"})
 	if err != nil {
 		t.Fatalf("flatPackageFilePaths() error = %v", err)
 	}
 	if want := filepath.Join(sourceRoot, filepath.FromSlash(storedPath)); source != want {
 		t.Errorf("source = %q, want %q", source, want)
 	}
-	if want := filepath.Join(destinationRoot, "andromeda-dummy_2.0-X.all-deb.deb"); destination != want {
+	if want := filepath.Join(destinationRoot, "andromeda-dummy_1:2.0-X.all-deb.deb"); destination != want {
 		t.Errorf("destination = %q, want %q", destination, want)
 	}
 }
 
-func TestDebPackageFileName(t *testing.T) {
+func TestFlatPackageFilePathsKeepsStoredNameOnIncompleteData(t *testing.T) {
+	const storedPath = "packages/42/hash/andromeda-dummy-2.0-X.all-deb.deb"
 	tests := []struct {
-		name, fileName, packageName, want string
+		name string
+		pkg  debPackage
 	}{
-		{"rename", "andromeda-dummy-2.0-X.all-deb.deb", "andromeda-dummy", "andromeda-dummy_2.0-X.all-deb.deb"},
-		{"single word name", "hello-1.0-1.amd64-deb.deb", "hello", "hello_1.0-1.amd64-deb.deb"},
-		{"already metadata name", "andromeda-dummy_2.0-X.all-deb.deb", "andromeda-dummy", "andromeda-dummy_2.0-X.all-deb.deb"},
-		{"prefix mismatch", "other-2.0-X.all-deb.deb", "andromeda-dummy", "other-2.0-X.all-deb.deb"},
-		{"empty package name", "andromeda-dummy-2.0-X.all-deb.deb", "", "andromeda-dummy-2.0-X.all-deb.deb"},
-		{"name is prefix of file name", "foo-bar-1.0-1.all-deb.deb", "foo", "foo_bar-1.0-1.all-deb.deb"},
+		{"package not found", debPackage{}},
+		{"no name", debPackage{version: "2.0", release: "X", arch: "all-deb"}},
+		{"no version", debPackage{name: "andromeda-dummy", arch: "all-deb"}},
+		{"no arch", debPackage{name: "andromeda-dummy", version: "2.0", release: "X"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := debPackageFileName(tt.fileName, tt.packageName); got != tt.want {
-				t.Errorf("debPackageFileName(%q, %q) = %q, want %q", tt.fileName, tt.packageName, got, tt.want)
+			_, destination, err := flatPackageFilePaths("/var/spacewalk", "/export/getPackage", storedPath, tt.pkg)
+			if err != nil {
+				t.Fatalf("flatPackageFilePaths() error = %v", err)
+			}
+			if want := filepath.Join("/export/getPackage", "andromeda-dummy-2.0-X.all-deb.deb"); destination != want {
+				t.Errorf("destination = %q, want %q", destination, want)
 			}
 		})
 	}
 }
 
-func TestLoadPackageNamesQueriesOnlyUnknownNames(t *testing.T) {
+func TestFlatPackageFilePathsRejectsUnsafeGeneratedName(t *testing.T) {
+	if _, _, err := flatPackageFilePaths("/var/spacewalk", "/export/getPackage", "packages/42/hash/p.deb",
+		debPackage{name: "evil", version: "1/../../x", release: "1", arch: "all-deb"}); err == nil {
+		t.Error("flatPackageFilePaths() error = nil, want an error for a name containing a separator")
+	}
+}
+
+func TestDebPackageFileName(t *testing.T) {
+	tests := []struct {
+		name string
+		pkg  debPackage
+		want string
+	}{
+		{"no epoch", debPackage{name: "andromeda-dummy", version: "2.0", release: "X", arch: "all-deb"}, "andromeda-dummy_2.0-X.all-deb.deb"},
+		{"epoch", debPackage{name: "andromeda-dummy", epoch: "1", version: "2.0", release: "X", arch: "all-deb"}, "andromeda-dummy_1:2.0-X.all-deb.deb"},
+		{"numeric release", debPackage{name: "hello", version: "1.0", release: "1ubuntu2", arch: "amd64-deb"}, "hello_1.0-1ubuntu2.amd64-deb.deb"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := debPackageFileName(tt.pkg); got != tt.want {
+				t.Errorf("debPackageFileName(%+v) = %q, want %q", tt.pkg, got, tt.want)
+			}
+		})
+	}
+}
+
+// expectDebPackagesQuery expects the single deb package data query for ids.
+func expectDebPackagesQuery(mock sqlmock.Sqlmock, ids []string) *sqlmock.ExpectedQuery {
+	return mock.ExpectQuery(regexp.QuoteMeta(debPackagesSql)).WithArgs(pq.Array(ids))
+}
+
+func debPackageRows() *sqlmock.Rows {
+	return sqlmock.NewRows([]string{"id", "name", "epoch", "version", "release", "label"})
+}
+
+func TestLoadDebPackages(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	table := schemareader.Table{Name: "rhnpackage", ColumnIndexes: map[string]int{"name_id": 0}}
-	row := func(nameID interface{}) []sqlUtil.RowDataStructure {
-		return []sqlUtil.RowDataStructure{{ColumnName: "name_id", Value: nameID}}
+	table := schemareader.Table{Name: "rhnpackage", ColumnIndexes: map[string]int{"id": 0}}
+	row := func(id interface{}) []sqlUtil.RowDataStructure {
+		return []sqlUtil.RowDataStructure{{ColumnName: "id", Value: id}}
 	}
-	packageNames := map[string]string{"1": "known"}
-	mock.ExpectQuery("SELECT id, name FROM rhnpackagename WHERE id = ANY").
-		WithArgs(pq.Array([]string{"2", "3"})).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name"}).AddRow("2", "two").AddRow("3", "three"))
 
-	rows := [][]sqlUtil.RowDataStructure{row(int64(1)), row(int64(2)), row([]byte("3")), row(int64(2)), row(nil)}
-	if err := loadPackageNames(db, rows, table, packageNames); err != nil {
+	// Duplicate and null ids are queried once or not at all.
+	expectDebPackagesQuery(mock, []string{"1", "2"}).WillReturnRows(debPackageRows().
+		AddRow("1", "one", nil, "1.0", "1", "all-deb").
+		AddRow("2", "two", "3", "2.0", "X", "amd64-deb"))
+	packages, err := loadDebPackages(db, [][]sqlUtil.RowDataStructure{row(int64(1)), row([]byte("2")), row(int64(1)), row(nil)}, table)
+	if err != nil {
 		t.Fatal(err)
 	}
-	// Every name is known now, so a second batch must not query again.
-	if err := loadPackageNames(db, rows, table, packageNames); err != nil {
+	want := map[string]debPackage{
+		"1": {name: "one", version: "1.0", release: "1", arch: "all-deb"},
+		"2": {name: "two", epoch: "3", version: "2.0", release: "X", arch: "amd64-deb"},
+	}
+	if len(packages) != len(want) || packages["1"] != want["1"] || packages["2"] != want["2"] {
+		t.Errorf("loadDebPackages() = %v, want %v", packages, want)
+	}
+
+	// A second batch gets a fresh map without the previous packages.
+	expectDebPackagesQuery(mock, []string{"3"}).WillReturnRows(debPackageRows().AddRow("3", "three", "", "3.0", "1", "all-deb"))
+	packages, err = loadDebPackages(db, [][]sqlUtil.RowDataStructure{row(int64(3))}, table)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if packageNames["2"] != "two" || packageNames["3"] != "three" || packageNames["1"] != "known" {
-		t.Errorf("unexpected package names %v", packageNames)
+	if len(packages) != 1 || packages["3"].name != "three" {
+		t.Errorf("second batch loadDebPackages() = %v, want only package 3", packages)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatal(err)
@@ -201,7 +251,8 @@ func TestPackageFilePathsRejectInvalidPaths(t *testing.T) {
 			if _, _, err := packageFilePaths("/var/spacewalk", "/export/getPackage", storedPath, nil); err == nil {
 				t.Errorf("packageFilePaths(%q) error = nil, want an error", storedPath)
 			}
-			if _, _, err := flatPackageFilePaths("/var/spacewalk", "/export/getPackage", storedPath, "package"); err == nil {
+			if _, _, err := flatPackageFilePaths("/var/spacewalk", "/export/getPackage", storedPath,
+				debPackage{name: "package", version: "1.0", release: "1", arch: "all-deb"}); err == nil {
 				t.Errorf("flatPackageFilePaths(%q) error = nil, want an error", storedPath)
 			}
 		})
@@ -225,14 +276,14 @@ func TestPackageDumpPanicsOnMissingFile(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer db.Close()
-			columns := []string{"id", "path", "org_id", "name_id"}
-			mock.ExpectQuery("SELECT id, path, org_id, name_id FROM rhnpackage").WillReturnRows(sqlmock.NewRows(columns).AddRow(1, storedPath, nil, 7))
+			columns := []string{"id", "path", "org_id"}
+			mock.ExpectQuery("SELECT id, path, org_id FROM rhnpackage").WillReturnRows(sqlmock.NewRows(columns).AddRow(1, storedPath, nil))
 			if layout == "ng-deb" {
-				mock.ExpectQuery("SELECT id, name FROM rhnpackagename WHERE id = ANY").
-					WillReturnRows(sqlmock.NewRows([]string{"id", "name"}).AddRow("7", "missing"))
+				expectDebPackagesQuery(mock, []string{"1"}).
+					WillReturnRows(debPackageRows().AddRow("1", "missing", nil, "1.0", "1", "all-deb"))
 			}
 			schema := map[string]schemareader.Table{"rhnpackage": {
-				Name: "rhnpackage", Columns: columns, ColumnIndexes: map[string]int{"id": 0, "path": 1, "org_id": 2, "name_id": 3},
+				Name: "rhnpackage", Columns: columns, ColumnIndexes: map[string]int{"id": 0, "path": 1, "org_id": 2},
 			}}
 			data := dumper.DataDumper{TableData: map[string]dumper.TableDump{"rhnpackage": {
 				TableName: "rhnpackage", Keys: []dumper.TableKey{{Key: []dumper.RowKey{{Column: "id", Value: "1"}}}},
