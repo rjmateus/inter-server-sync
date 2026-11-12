@@ -19,6 +19,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/uyuni-project/inter-server-sync/cobbler"
 	"github.com/uyuni-project/inter-server-sync/dumper/pillarDumper"
+	"github.com/uyuni-project/inter-server-sync/entityDumper"
 	"github.com/uyuni-project/inter-server-sync/schemareader"
 	"github.com/uyuni-project/inter-server-sync/utils"
 	"github.com/uyuni-project/inter-server-sync/xmlrpc"
@@ -86,12 +87,18 @@ func runImport(cmd *cobra.Command, args []string) {
 	}
 
 	sqlImportFile := validateFolder(absImportDir)
+	errataImportFile := filepath.Join(absImportDir, entityDumper.ErrataFileNG)
+	hasErrataFile := isRegularFile(errataImportFile)
 	if !skipVerify {
 		if err := utils.ValidateFile(sqlImportFile, certFile, caFile); err != nil {
 			log.Fatal().Msg("Signature check of import file failed!")
-		} else {
-			log.Info().Msg("Import data validated")
 		}
+		if hasErrataFile {
+			if err := utils.ValidateFile(errataImportFile, certFile, caFile); err != nil {
+				log.Fatal().Msg("Signature check of errata import file failed!")
+			}
+		}
+		log.Info().Msg("Import data validated")
 	}
 	log.Info().Msg("Importing...")
 
@@ -102,8 +109,17 @@ func runImport(cmd *cobra.Command, args []string) {
 	runImageFileSync(absImportDir, serverConfig)
 
 	runImportSql(absImportDir, serverConfig)
-	if err := syncExportedChannelRepos(absImportDir, serverConfig); err != nil {
-		log.Fatal().Err(err).Msg("one or more channel repository syncs failed")
+	syncErr := syncExportedChannelRepos(absImportDir, serverConfig)
+	// Errata link to packages created by the repository sync, so they are imported last.
+	// Run even after sync failures: links to missing packages are skipped.
+	if hasErrataFile {
+		log.Info().Msg("Starting errata import")
+		importGzFile(errataImportFile)
+	} else {
+		log.Info().Msg("no errata file to import")
+	}
+	if syncErr != nil {
+		log.Fatal().Err(syncErr).Msg("one or more channel repository syncs failed")
 	}
 	log.Info().Msg("import finished")
 }
@@ -213,6 +229,7 @@ func syncExportedChannelReposWithRunner(importDirectory string, archType func(st
 	scanner := bufio.NewScanner(file)
 	var syncErrors []string
 	for scanner.Scan() {
+
 		label := strings.TrimSpace(scanner.Text())
 		if label == "" {
 			continue
@@ -222,6 +239,7 @@ func syncExportedChannelReposWithRunner(importDirectory string, archType func(st
 			continue
 		}
 
+		log.Info().Msgf("Processing Channel Import for: %s", label)
 		repositoryPath := filepath.Join(importDirectory, "repos", label)
 		syncType := resolveSyncType(label, repositoryPath, archType)
 		if !hasRepositoryMetadata(label, repositoryPath, syncType) {
@@ -363,8 +381,8 @@ func runImageFileSync(absImportDir string, serverConfig string) {
 	}
 }
 
-func importSqlFile(absImportDir string) {
-	cmd := exec.Command("spacewalk-sql", fmt.Sprintf("%s/sql_statements.sql", absImportDir))
+func importSqlFile(sqlFile string) {
+	cmd := exec.Command("spacewalk-sql", sqlFile)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -375,8 +393,8 @@ func importSqlFile(absImportDir string) {
 	}
 }
 
-func importGzFile(absImportDir string) {
-	cUnzip := exec.Command("gunzip", "-c", fmt.Sprintf("%s/sql_statements.sql.gz", absImportDir))
+func importGzFile(gzFile string) {
+	cUnzip := exec.Command("gunzip", "-c", gzFile)
 	cImport := exec.Command("spacewalk-sql", "-")
 
 	pr, pw := io.Pipe()
@@ -404,10 +422,10 @@ func importGzFile(absImportDir string) {
 func runImportSql(absImportDir string, serverConfig string) {
 
 	if _, err := os.Stat(fmt.Sprintf("%s/sql_statements.sql.gz", absImportDir)); err == nil {
-		importGzFile(absImportDir)
+		importGzFile(fmt.Sprintf("%s/sql_statements.sql.gz", absImportDir))
 	} else {
 		if _, err := os.Stat(fmt.Sprintf("%s/sql_statements.sql", absImportDir)); err == nil {
-			importSqlFile(absImportDir)
+			importSqlFile(fmt.Sprintf("%s/sql_statements.sql", absImportDir))
 		}
 	}
 

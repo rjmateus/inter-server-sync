@@ -50,6 +50,7 @@ func TestValidateExportFolderNg(t *testing.T) {
 			files := map[string]string{
 				"hubserver.pem": "certificate", "sql_statements.sql.gz": "old long SQL content",
 				"sql_statements.sql.gz.sha512": "signature", "version.txt": "old long version",
+				"errata_statements.sql.gz": "old errata", "errata_statements.sql.gz.sha512": "errata signature",
 				"repos/a/getPackage/package.rpm": "package", "unrelated.txt": "keep me",
 			}
 			if tt.hasControl {

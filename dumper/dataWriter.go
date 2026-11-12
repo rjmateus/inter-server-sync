@@ -492,6 +492,9 @@ func generateClearTable(db *sql.DB, writer *bufio.Writer, table schemareader.Tab
 	cleanEmptyTable := fmt.Sprintf("\nDELETE FROM %s WHERE (%s) IN (%s);",
 		table.Name, mainUniqueColumns, existingRecords)
 	writer.WriteString(cleanEmptyTable + "\n")
+	if options.SkipRepopulate {
+		return
+	}
 
 	// repopulate all pre-existing data
 	allTableRecordsSql := fmt.Sprintf("SELECT * FROM %s WHERE (%s) IN (%s);",

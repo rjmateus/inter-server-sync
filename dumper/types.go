@@ -41,7 +41,10 @@ type PrintSqlOptions struct {
 	TablesToClean            []string
 	CleanWhereClause         string
 	OnlyIfParentExistsTables []string
-	PostOrderCallback        Callback
+	// SkipRepopulate omits re-inserting the rows removed by the clean statements.
+	// Only safe when the exported data already contains all of them (no starting date).
+	SkipRepopulate    bool
+	PostOrderCallback Callback
 }
 
 type Callback func(db *sql.DB, writer *bufio.Writer, schemaMetadata map[string]schemareader.Table, table schemareader.Table, data DataDumper)

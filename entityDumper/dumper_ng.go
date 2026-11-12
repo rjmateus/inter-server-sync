@@ -60,6 +60,10 @@ func DumpAllEntitiesNG(options DumperOptions) {
 	}
 
 	bufferWriter.WriteString("COMMIT;\n")
+
+	if len(channels) > 0 {
+		dumpChannelsErrataNG(db, options, channels)
+	}
 }
 
 // validateExportFolderNg checks the export scope before removing generated metadata.
@@ -132,7 +136,8 @@ func validateExportFolderNg(outputFolderAbs string, channels []string, force boo
 		}
 	}
 
-	generatedFiles := []string{"exportedChannels.txt", "hubserver.pem", "sql_statements.sql.gz", "sql_statements.sql.gz.sha512", "version.txt"}
+	generatedFiles := []string{"exportedChannels.txt", "hubserver.pem", "sql_statements.sql.gz", "sql_statements.sql.gz.sha512",
+		ErrataFileNG, ErrataFileNG + ".sha512", "version.txt"}
 	// Preflight every target so an unexpected directory cannot cause partial cleanup.
 	for _, name := range generatedFiles {
 		filename := path.Join(outputFolderAbs, name)

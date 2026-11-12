@@ -5,9 +5,14 @@
 package dumper
 
 import (
+	"bufio"
+	"bytes"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/uyuni-project/inter-server-sync/schemareader"
 	"github.com/uyuni-project/inter-server-sync/sqlUtil"
 )
 
@@ -69,5 +74,37 @@ func TestFormatField(t *testing.T) {
 		if result != test.expectedVal {
 			t.Errorf("formatField(%+v) = %s; expected %s", test.col, result, test.expectedVal)
 		}
+	}
+}
+
+func TestGenerateClearTableSkipRepopulate(t *testing.T) {
+	table := schemareader.Table{
+		Name:                "rhnchannelerrata",
+		MainUniqueIndexName: "uq",
+		UniqueIndexes:       map[string]schemareader.UniqueIndex{"uq": {Name: "uq", Columns: []string{"channel_id", "errata_id"}}},
+	}
+	schema := map[string]schemareader.Table{table.Name: table}
+	options := PrintSqlOptions{CleanWhereClause: "WHERE 1=1", SkipRepopulate: true}
+
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	// no query expectation: reading the rows to repopulate would fail the mock
+
+	var out bytes.Buffer
+	writer := bufio.NewWriter(&out)
+	generateClearTable(db, writer, table, []string{table.Name}, schema, options)
+	writer.Flush()
+
+	if !strings.Contains(out.String(), "DELETE FROM rhnchannelerrata") {
+		t.Errorf("missing DELETE statement: %q", out.String())
+	}
+	if strings.Contains(out.String(), "INSERT") {
+		t.Errorf("repopulate inserts written despite SkipRepopulate: %q", out.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Error(err)
 	}
 }
